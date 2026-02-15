@@ -156,48 +156,45 @@ def create_gaussian_mask(
 
 
 def create_blend_mask(
-    tile_bbox: Tuple[int, int, int, int],
-    image_size: Tuple[int, int],
-    feather: int
+    tile_size: Tuple[int, int],
+    overlap: int,
+    image_size: Optional[Tuple[int, int]] = None,
+    tile_bbox: Optional[Tuple[int, int, int, int]] = None
 ) -> np.ndarray:
     """
-    Cria máscara para blending de tiles (feathered edges).
-    
-    Args:
-        tile_bbox: (x1, y1, x2, y2) do tile
-        image_size: (width, height) da imagem completa
-        feather: Raio do feathering em pixels
-        
-    Returns:
-        Máscara 2D float32 (0-1) com dimensões do tile
+    Cria máscara para blending de tiles (feathered/gaussiana).
+    Versão aprimorada com scipy para transições mais suaves.
     """
-    x1, y1, x2, y2 = tile_bbox
-    w = x2 - x1
-    h = y2 - y1
+    from scipy.ndimage import gaussian_filter
+    
+    # Se receber tile_bbox e image_size, calcula se precisa de feather em cada lado
+    # (Não aplica feather na borda externa da página)
+    h, w = tile_size
     mask = np.ones((h, w), dtype=np.float32)
     
-    img_w, img_h = image_size
+    if overlap <= 0:
+        return mask
+        
+    x = np.linspace(0, 1, overlap)
+    left = x
+    right = x[::-1]
     
-    # Aplica feather nas bordas que não tocam a borda da imagem
+    # Se temos contexto de página, sabemos onde não aplicar feather
+    if image_size and tile_bbox:
+        img_w, img_h = image_size
+        tx1, ty1, tx2, ty2 = tile_bbox
+        
+        if tx1 > 0: mask[:, :overlap] *= left[np.newaxis, :]
+        if tx2 < img_w: mask[:, -overlap:] *= right[np.newaxis, :]
+        if ty1 > 0: mask[:overlap, :] *= left[:, np.newaxis]
+        if ty2 < img_h: mask[-overlap:, :] *= right[:, np.newaxis]
+    else:
+        # Modo simples: feather em todos os lados
+        mask[:, :overlap] *= left[np.newaxis, :]
+        mask[:, -overlap:] *= right[np.newaxis, :]
+        mask[:overlap, :] *= left[:, np.newaxis]
+        mask[-overlap:, :] *= right[:, np.newaxis]
     
-    # Esquerda
-    if x1 > 0:
-        for i in range(min(feather, w)):
-            mask[:, i] *= (i / feather)
-    
-    # Direita
-    if x2 < img_w:
-        for i in range(min(feather, w)):
-            mask[:, w - 1 - i] *= (i / feather)
-    
-    # Topo
-    if y1 > 0:
-        for i in range(min(feather, h)):
-            mask[i, :] *= (i / feather)
-    
-    # Base
-    if y2 < img_h:
-        for i in range(min(feather, h)):
-            mask[h - 1 - i, :] *= (i / feather)
-    
-    return mask
+    # Suaviza a transição
+    mask = gaussian_filter(mask, sigma=overlap/4)
+    return np.clip(mask, 0.0, 1.0)

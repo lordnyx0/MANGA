@@ -99,10 +99,13 @@ class MangaPromptBuilder:
                     print(f"[MangaPromptBuilder] Ignorando paletas B&W (sem referências coloridas)")
         
         # Monta prompt final
+        # Adiciona tags de fidelidade sugeridas pelo usuário
+        fidelity_tags = "estilo mangá colorido, sombreado cel, sem sobreposição de texto"
+        
         if color_prompt:
-            prompt = f"{base}, {char_prompt}{color_prompt}, {scene_desc}, masterpiece, best quality"
+            prompt = f"{base}, {char_prompt}{color_prompt}, {scene_desc}, {fidelity_tags}, masterpiece, best quality"
         else:
-            prompt = f"{base}, {char_prompt}{scene_desc}, masterpiece, best quality"
+            prompt = f"{base}, {char_prompt}{scene_desc}, {fidelity_tags}, masterpiece, best quality"
         
         # Registra prompts no logger se disponível
         if self.logger and hasattr(self.logger, 'log_prompts'):

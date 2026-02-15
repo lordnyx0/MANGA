@@ -31,7 +31,7 @@ from core.generation.interfaces import ColorizationEngine
 from core.identity.palette_manager import CharacterPalette
 from core.generation.scene_palette_service import ScenePaletteService
 from core.logging import GenerationLogger
-from core.utils.image_ops import create_gaussian_mask
+from core.utils.image_ops import create_gaussian_mask, create_blend_mask
 from core.constants import SceneType, DetectionClass
 from core.generation.tiling import TilingManager
 from core.generation.prompt_builder import MangaPromptBuilder
@@ -143,6 +143,12 @@ class Pass2Generator:
             options['scene_type'] = getattr(page_analysis, 'scene_type', SceneType.PRESENT.value)
             logger.info(f"Scene Context: {options['scene_type']}")
 
+        # 1. DETERMINISTIC GENERATOR (Phase 3 Fix)
+        # Garante que todos os tiles usem a mesma semente base de forma controlada
+        base_seed = options.get("seed", 42)
+        # No V3, passamos o gerador para garantir consistência entre tiles (se houver tiling)
+        options['generator'] = torch.Generator(device=self.device).manual_seed(base_seed)
+
         # Carrega imagem original
         image = Image.open(page_analysis.image_path).convert('RGB')
         img_w, img_h = image.size
@@ -251,10 +257,6 @@ class Pass2Generator:
                 # Callback de progresso
                 if progress_callback:
                     progress_callback(i + 1, len(page_numbers))
-                
-                # Libera VRAM entre páginas
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
                 gc.collect()
                 
             except Exception as e:
@@ -557,8 +559,9 @@ class Pass2Generator:
             
             # 6. Accumulate (Blending)
             tile_np = np.array(tile_color_layer).astype(np.float32)
+            th, tw = tile_np.shape[:2]
             blend_mask = create_blend_mask(
-                tile_job.tile_bbox, (img_w, img_h), TILE_OVERLAP // 2
+                (th, tw), TILE_OVERLAP, image_size=(img_w, img_h), tile_bbox=tile_job.tile_bbox
             )
             
             accumulator[ty1:ty2, tx1:tx2] += tile_np * blend_mask[:, :, np.newaxis]
@@ -732,8 +735,14 @@ class Pass2Generator:
         return masks
 
     def unload(self):
-        """Descarrega modelos da VRAM"""
-        self.generator.unload()
+        """Descarrega modelos da VRAM (Phase 3 Fix)"""
+        if hasattr(self, "engine") and self.engine is not None:
+            if hasattr(self.engine, "offload_models"):
+                try:
+                    self.engine.offload_models()
+                except Exception as e:
+                    logger.warning(f"Falha ao unload engine: {e}")
+        
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         gc.collect()

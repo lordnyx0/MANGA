@@ -5,7 +5,7 @@ from typing import Dict, Any, Optional, Union, List
 from diffusers import (
     StableDiffusionControlNetPipeline, 
     ControlNetModel, 
-    DDIMScheduler,
+    EulerAncestralDiscreteScheduler,
     AutoencoderKL
 )
 from transformers import CLIPVisionModelWithProjection
@@ -90,15 +90,24 @@ class SD15LineartEngine(ColorizationEngine):
             logger.info("Forçando VAE para Float32 (Pós-Init Pipeline) para corrigir cores...")
             self.pipe.vae = self.pipe.vae.to(dtype=torch.float32)
             
-            # 4. Configura Scheduler (DDIM é mais rápido/consistente para inpainting)
-            # NOTA: rescale_betas_zero_snr REMOVIDO - causa instabilidade numérica e imagens psicodélicas
-            self.pipe.scheduler = DDIMScheduler.from_config(
+            # 4. Sampler Euler A (Agressivo e Nítido)
+            self.pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
                 self.pipe.scheduler.config,
-                rescale_betas_zero_snr=False,
-                clip_sample=False  # Importante para estabilidade
+                beta_start=0.00085,
+                beta_end=0.012,
+                beta_schedule='scaled_linear'
             )
             
-            # 5. Carrega IP-Adapter
+            # 5. VAE MSE (Color Fidelity)
+            # Força o uso do VAE especializado para evitar desvios cromáticos
+            vae_id = "stabilityai/sd-vae-ft-mse"
+            logger.info(f"Forçando VAE de alta fidelidade: {vae_id}")
+            self.pipe.vae = AutoencoderKL.from_pretrained(
+                vae_id, 
+                torch_dtype=self.dtype
+            ).to(self.device)
+            
+            # 6. Carrega IP-Adapter
             self.pipe.load_ip_adapter(
                 self.ip_adapter_repo,
                 subfolder="models",
@@ -208,10 +217,13 @@ class SD15LineartEngine(ColorizationEngine):
         
         options = options or {}
             
-        try:
-            generator = torch.Generator(device="cpu").manual_seed(seed)
-        except Exception:
-            generator = None
+        if 'generator' in options and isinstance(options['generator'], torch.Generator):
+            generator = options['generator']
+        else:
+            try:
+                generator = torch.Generator(device=self.device).manual_seed(seed)
+            except Exception:
+                generator = None
         
         # Configura IP-Adapter Scale
         # 0.0 se sem referência, 0.6-0.7 se com referência
@@ -400,11 +412,13 @@ class SD15LineartEngine(ColorizationEngine):
 
     def compose_final(self, base_image: Image.Image, colorized_image: Image.Image, detections: Optional[List[Dict]] = None) -> Image.Image:
         """
-        Combina o traço original (base) com a cor gerada (colorized) usando Multiply.
-        Garante que o traço original preto permaneça preto e nítido.
-        Se detections for fornecido, limpa as áreas de texto para evitar balões sujos e ghosting.
+        Combina o traço original (base) com a cor gerada (colorized) usando
+        Alpha Compositing (Phase 3 Fix).
+        
+        Preserva o traço original preto e nítido usando a luminância 
+        do lineart como máscara alpha.
         """
-        from PIL import ImageDraw
+        from PIL import ImageDraw, ImageFilter
         
         # Converte para modo compatível
         base = base_image.convert("RGB")
@@ -414,32 +428,33 @@ class SD15LineartEngine(ColorizationEngine):
         if base.size != color.size:
             color = color.resize(base.size, Image.LANCZOS)
             
-        # BUBBLE MASKING: Limpa áreas de texto na camada de cor
-        # Isso evita que o Multiply aplique cores "sujas" dentro dos balões
-        from PIL import ImageFilter
+        # 1. BUBBLE MASKING: Limpa áreas de texto na camada de cor
         if detections:
             draw = ImageDraw.Draw(color)
-            text_cleaned = 0
             for det in detections:
-                # Class 3 = text no Manga109
                 if det.get('class_id') == 3 or det.get('class_name') == 'text':
                     bbox = det.get('bbox')
                     if bbox:
                         x1, y1, x2, y2 = bbox
-                        # Adiciona pequeno padding de 4px para garantir limpeza total da borda
-                        # (O YOLO às vezes corta muito rente)
                         draw.rectangle([x1-4, y1-4, x2+4, y2+4], fill=(255, 255, 255))
-                        text_cleaned += 1
-            if text_cleaned > 0:
-                logger.debug(f"Bubble Masking: {text_cleaned} regiões de texto limpas na camada de cor.")
         
-        # SOFT COMPOSITION: Aplica um leve blur na camada de cor antes do Multiply
-        # Isso suaviza a transição entre linhas e cores, reduzindo halos e "jaggies"
+        # 2. SOFT COMPOSITION: Suaviza a cor
         color = color.filter(ImageFilter.GaussianBlur(radius=0.5))
-            
-        # Multiply blending: (base * color) / 255
-        # Onde base é branca (255), cor é preservada.
-        # Onde base é preta (0), resultado é preto.
-        composed = ImageChops.multiply(base, color)
         
+        # 3. ALPHA BLENDING: (Phase 3 Suggestion)
+        # Usa o lineart como máscara: tom escuro -> mais opaco
+        line_np = np.array(base).astype(np.float32) / 255.0
+        color_np = np.array(color).astype(np.float32) / 255.0
+        
+        # Máscara de alpha baseada no brilho do lineart (Gray = (R+G+B)/3)
+        # Quanto mais preto (0), maior o alpha (1.0).
+        gray = np.mean(line_np, axis=2)
+        alpha = 1.0 - np.clip(gray, 0.0, 1.0)
+        alpha = alpha[..., np.newaxis]
+        
+        # Blend: color * (1 - alpha) + line * alpha
+        # Mantém a cor nos brancos e o traço puro nos pretos
+        out_np = color_np * (1.0 - alpha) + line_np * alpha
+        
+        composed = Image.fromarray((np.clip(out_np, 0.0, 1.0) * 255).astype(np.uint8))
         return composed

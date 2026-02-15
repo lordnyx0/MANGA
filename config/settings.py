@@ -41,10 +41,8 @@ CONTEXT_INFLATION_FACTOR = 1.5     # Fator de expansão para contexto (IP-Adapte
 
 # Limites de resolução SDXL
 MAX_RESOLUTION = 2048              # Máximo para SDXL
-TILE_SIZE = 1024                   # Tamanho do tile para processamento (SDXL nativo)
-                                    # 1024x1024 é a resolução nativa de treino do SDXL
-                                    # Páginas maiores são divididas em múltiplos tiles com overlap
-TILE_OVERLAP = 256                 # Overlap entre tiles para blending suave
+TILE_SIZE = int(os.environ.get('TILE_SIZE', 1024))                   # Tamanho do tile (SDXL nativo)
+TILE_OVERLAP = int(os.environ.get('TILE_OVERLAP', 256))              # Overlap entre tiles
 
 # VRAM Management
 MAX_VRAM_USAGE_GB = 10.0           # Limite de segurança para RTX 3060 (12GB)
@@ -59,9 +57,9 @@ SD15_MODEL_ID = "runwayml/stable-diffusion-v1-5"
 CONTROLNET_LINEART_ID = "lllyasviel/control_v11p_sd15s2_lineart_anime"
 IP_ADAPTER_V3_REPO = "h94/IP-Adapter"
 IP_ADAPTER_V3_FILE = "ip-adapter-plus-face_sd15.bin"
-V3_STEPS = 20
+V3_STEPS = 50                  # Aumentado para 50 para máxima nitidez (Euler A)
 V3_STRENGTH = 0.75
-V3_GUIDANCE_SCALE = 7.5
+V3_GUIDANCE_SCALE = 9.0         # Aumentado para 9.0 para melhor aderência ao prompt
 V3_IP_SCALE = 0.7
 V3_CONTROL_SCALE = 0.8
 
