@@ -513,3 +513,15 @@ class TestCreateMaskProcessor:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+def test_mask_quality_gate_rejects_too_fragmented_mask():
+    processor = MaskProcessor()
+    mask = np.zeros((80, 80), dtype=np.uint8)
+    # cria muitos componentes pequenos
+    for i in range(30):
+        x = (i * 2) % 70
+        y = (i * 3) % 70
+        mask[y:y+1, x:x+1] = 255
+
+    assert processor._is_mask_quality_valid(mask) is False

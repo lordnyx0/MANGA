@@ -256,7 +256,7 @@ run_tests.bat  # Roda Unit, Integration e E2E em sequência
     *   **Conteúdo**: Close-up de rosto (ArcFace) + Torso superior (CLIP/IP-Adapter) para melhor fidelidade.
 
 ### 3. Pipeline Gráfico e Determinismo
-*   **Seed**: O sistema é determinístico se `seed` for fornecido. O `SD15LineartEngine` instancia `torch.Generator("cpu").manual_seed(seed)` para garantir reprodutibilidade.
+*   **Seed**: O sistema é determinístico se `seed` for fornecido. O `SD15LineartEngine` instancia `torch.Generator(device).manual_seed(seed)` (CUDA quando disponível, com fallback) para garantir reprodutibilidade prática por ambiente.
 *   **Ordem de Composição**:
     1.  **Geração**: SD 1.5 + Lineart + IP-Adapter -> RGB (Base Color).
     2.  **Multiply Blend**: `Base Color * Original Lineart` -> Preserva pretos absolutos.
@@ -285,3 +285,74 @@ run_tests.bat  # Roda Unit, Integration e E2E em sequência
 ---
 
 *Documento atualizado em: 14/02/2026 (v3.0.1 + Bubble Masking + AVQV)*
+
+
+## 🧯 Plano Arquitetural para Eliminar Artefatos "Psicodélicos/Fritos"
+
+Este plano consolida melhorias **obrigatórias** para estabilizar a geração no v3.x e evitar regressões de cor/latente.
+
+### A. Contratos de Estabilidade Numérica (Engine)
+1. **VAE sempre em FP32 + `force_upcast=True`** no ciclo inteiro de inferência.
+2. **Política de Scheduler versionada**: preservar parâmetros estáveis por profile (evitar drift silencioso).
+3. **Sanitização de latents antes do decode** (`nan_to_num`, clamp de faixa) como regra de contrato, não workaround opcional.
+4. **Fail-fast com fallback**: se detectar NaN/Inf em latents, reiniciar etapa com profile conservador (menos guidance e menor IP scale).
+
+### B. Contratos de Condicionamento (ControlNet + IP-Adapter)
+1. **IP-Adapter nunca ativo sem referência válida** (global e regional).
+2. **`ip_adapter_end_step` clamped [0,1]** com semântica explícita para `0.0` = desligado desde o passo 0.
+3. **Escalas sempre vindas de config central** (sem literais hardcoded no engine).
+4. **Validação de referência**: bloquear imagens de referência vazias/corrompidas (evita conditioning lixo).
+
+### C. Robustez de Detecção e Máscaras (Pass 1)
+1. **Deduplicação de detecções por classe (IoU + contenção)** antes do pairing body/face.
+2. **Subtração de oclusão com união booleana (`front_union`)** para evitar reintrodução de overlap.
+3. **Dilatação de fundo com proteção de foreground** (não invadir pixels já ocupados).
+4. **Gates de qualidade de máscara**: área mínima, conectividade, e validação de cobertura por personagem.
+
+### D. Robustez de Lineart
+1. **Canny adaptativo por mediana** com blur leve para variação de scan.
+2. **Métricas de lineart por página** (densidade de borda, conectividade, razão de pixels de traço).
+3. **Fallback automático**: se lineart ficar abaixo do limiar, alternar thresholds/profile mais conservador.
+
+### E. Quality Gates de Produção (AVQV + Runtime)
+1. **Gate de saída por métricas cromáticas**: saturação extrema, razão de pixels clipping, variância de cor anômala.
+2. **Gate de sanidade latente**: abortar/pivotar quando houver NaN/Inf/outlier severo.
+3. **Teste de regressão visual obrigatório** por release (conjunto fixo de páginas difíceis).
+4. **Feature flag de perfis de geração** (`safe`, `balanced`, `aggressive`) com rollout controlado.
+
+### F. Observabilidade e Diagnóstico
+1. Registrar por página: scheduler profile, VAE dtype efetivo, IP scales por fase, stats de latents e métricas AVQV.
+2. Persistir artefatos debug opcionais (lineart, masks, mapa de overlap) com retenção curta e hash da página.
+3. Dashboard simples de drift de qualidade para detectar regressão antes de produção.
+
+### G. Backlog Prioritário (ordem de implementação)
+1. **P0**: Quality gates de latents + fallback conservador automático.
+2. **P0**: Gate AVQV mínimo no fim da geração e retry com profile `safe`.
+3. **P1**: Normalização de referências (quality check + crop policy para IP-Adapter).
+4. **P1**: Métricas de lineart e auto-tuning de thresholds por página.
+5. **P2**: Benchmark contínuo com dataset interno de casos críticos.
+
+- **P2 (inicial) implementado**: script de benchmark contínuo em `scripts/verification/benchmark_critical_cases.py` para medir AVQV em dataset interno.
+
+> Resultado esperado: queda forte de imagens com saturação anômala/cores quebradas, menor bleed entre personagens e comportamento previsível entre GPUs/versões.
+
+### H. Status de Implementação (Checklist Vivo)
+
+| Item | Status | Evidência |
+|---|---|---|
+| P0.1 Quality gates de latents + fallback conservador | ✅ Concluído | `SD15LineartEngine` com fail-fast de latents + retry SAFE |
+| P0.2 Gate AVQV mínimo no fim da geração + retry safe | ✅ Concluído | `core/generation/quality_gate.py` + integração no engine |
+| P1.1 Normalização/quality check de referências | ✅ Concluído | `_reference_is_valid` + `_normalize_reference_image` |
+| P1.2 Métricas de lineart e auto-tuning por página | ✅ Concluído | `_compute_lineart_metrics` + autocontrast fallback |
+| P2.1 Benchmark contínuo de casos críticos | ✅ Concluído (inicial) | `scripts/verification/benchmark_critical_cases.py` |
+| Scheduler versionado por profile | ✅ Concluído (v1) | `SCHEDULER_PROFILES_V3` + aplicação dinâmica no engine |
+| Gate de qualidade de máscara (área/conectividade) | ✅ Concluído (v1) | Rejeição por área mínima + número máximo de componentes em `MaskProcessor` |
+| Regressão visual obrigatória por release | ❌ Pendente | Necessário pipeline CI com dataset fixo e threshold gate |
+| Dashboard de drift de qualidade | ❌ Pendente | Necessário serviço/relatório contínuo com séries históricas |
+
+
+
+### I. Pendências ativas
+
+1. **Regressão visual obrigatória por release (CI gate)**.
+2. **Dashboard de drift de qualidade com série histórica**.

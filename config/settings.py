@@ -62,6 +62,42 @@ V3_STRENGTH = 0.75
 V3_GUIDANCE_SCALE = 9.0         # Aumentado para 9.0 para melhor aderência ao prompt
 V3_IP_SCALE = 0.7
 V3_CONTROL_SCALE = 0.8
+V3_RETRY_ON_ARTIFACTS = True
+V3_SAFE_GUIDANCE_SCALE = 7.0
+V3_SAFE_CONTROL_SCALE = 0.7
+V3_SAFE_IP_SCALE = 0.55
+V3_ARTIFACT_SATURATION_THRESHOLD = 0.82
+V3_ARTIFACT_EXTREME_PIXELS_THRESHOLD = 0.28
+V3_ARTIFACT_COLOR_STD_THRESHOLD = 0.35
+V3_LATENT_ABS_MAX = 12.0
+V3_REF_MIN_SIZE = 64
+V3_REF_MIN_STD = 8.0
+V3_LINEART_MIN_EDGE_DENSITY = 0.008
+V3_LINEART_AUTOCONTRAST_CUTOFF = 2
+
+SCHEDULER_PROFILES_V3 = {
+    "safe": {"beta_start": 0.0009, "beta_end": 0.012},
+    "balanced": {"beta_start": 0.00085, "beta_end": 0.012},
+    "aggressive": {"beta_start": 0.00075, "beta_end": 0.013},
+}
+
+GENERATION_PROFILES_V3 = {
+    "safe": {
+        "guidance_scale": 7.0,
+        "control_scale": 0.7,
+        "ip_scale": 0.55,
+    },
+    "balanced": {
+        "guidance_scale": V3_GUIDANCE_SCALE,
+        "control_scale": V3_CONTROL_SCALE,
+        "ip_scale": V3_IP_SCALE,
+    },
+    "aggressive": {
+        "guidance_scale": 10.0,
+        "control_scale": 0.9,
+        "ip_scale": 0.8,
+    },
+}
 
 # Presets de Qualidade V3
 QUALITY_PRESETS = {

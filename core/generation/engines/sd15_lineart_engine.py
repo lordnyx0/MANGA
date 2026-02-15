@@ -12,10 +12,33 @@ from transformers import CLIPVisionModelWithProjection
 import numpy as np
 
 from config.settings import DEVICE, DTYPE
-from config.settings import QUALITY_PRESETS, V3_STEPS, V3_STRENGTH, V3_GUIDANCE_SCALE, V3_CONTROL_SCALE
+from config.settings import (
+    QUALITY_PRESETS,
+    V3_STEPS,
+    V3_STRENGTH,
+    V3_GUIDANCE_SCALE,
+    V3_CONTROL_SCALE,
+    V3_IP_SCALE,
+    IP_ADAPTER_END_STEP,
+    V3_RETRY_ON_ARTIFACTS,
+    V3_SAFE_GUIDANCE_SCALE,
+    V3_SAFE_CONTROL_SCALE,
+    V3_SAFE_IP_SCALE,
+    V3_ARTIFACT_SATURATION_THRESHOLD,
+    V3_ARTIFACT_EXTREME_PIXELS_THRESHOLD,
+    V3_ARTIFACT_COLOR_STD_THRESHOLD,
+    V3_LATENT_ABS_MAX,
+    V3_REF_MIN_SIZE,
+    V3_REF_MIN_STD,
+    V3_LINEART_MIN_EDGE_DENSITY,
+    V3_LINEART_AUTOCONTRAST_CUTOFF,
+    GENERATION_PROFILES_V3,
+    SCHEDULER_PROFILES_V3,
+)
 
 from core.generation.engines.vae_dtype_adapter import VAEDtypeAdapter
 from core.generation.interfaces import ColorizationEngine
+from core.generation.quality_gate import analyze_avqv_metrics, should_retry_safe
 from core.exceptions import ModelLoadError, GenerationError
 from core.logging.setup import get_logger
 
@@ -32,6 +55,7 @@ class SD15LineartEngine(ColorizationEngine):
         self.dtype = dtype
         self.pipe = None
         self.models_loaded = False
+        self.current_generation_profile = "balanced"
         
         # Caminhos dos modelos
         self.model_id = "runwayml/stable-diffusion-v1-5"
@@ -90,22 +114,15 @@ class SD15LineartEngine(ColorizationEngine):
             logger.info("Forçando VAE para Float32 (Pós-Init Pipeline) para corrigir cores...")
             self.pipe.vae = self.pipe.vae.to(dtype=torch.float32)
             
-            # 4. Sampler Euler A (Agressivo e Nítido)
-            self.pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
-                self.pipe.scheduler.config,
-                beta_start=0.00085,
-                beta_end=0.012,
-                beta_schedule='scaled_linear'
-            )
+            # 4. Scheduler profile inicial (balanced)
+            self._apply_scheduler_profile("balanced")
             
-            # 5. VAE MSE (Color Fidelity)
-            # Força o uso do VAE especializado para evitar desvios cromáticos
-            vae_id = "stabilityai/sd-vae-ft-mse"
-            logger.info(f"Forçando VAE de alta fidelidade: {vae_id}")
-            self.pipe.vae = AutoencoderKL.from_pretrained(
-                vae_id, 
-                torch_dtype=self.dtype
-            ).to(self.device)
+            # 5. Segurança de dtype no VAE (Color Fidelity)
+            # IMPORTANTE: manter em FP32. Recarregar em self.dtype (FP16 em CUDA)
+            # reintroduz artefatos de cores fritadas/psicodélicas.
+            logger.info("Reforçando VAE em Float32 para estabilidade de cor.")
+            self.pipe.vae = self.pipe.vae.to(device=self.device, dtype=torch.float32)
+            self.pipe.vae.config.force_upcast = True
             
             # 6. Carrega IP-Adapter
             self.pipe.load_ip_adapter(
@@ -201,6 +218,107 @@ class SD15LineartEngine(ColorizationEngine):
             options=options
         )
 
+    @staticmethod
+    def _analyze_image_artifacts(image: Image.Image) -> Dict[str, float]:
+        """Retorna métricas AVQV mínimas para detectar saída psicodélica/frita."""
+        return analyze_avqv_metrics(image)
+
+    @staticmethod
+    def _is_psychedelic_output(metrics: Dict[str, float]) -> bool:
+        return should_retry_safe(
+            metrics,
+            {
+                "saturation_mean": V3_ARTIFACT_SATURATION_THRESHOLD,
+                "extreme_pixels_ratio": V3_ARTIFACT_EXTREME_PIXELS_THRESHOLD,
+                "color_std": V3_ARTIFACT_COLOR_STD_THRESHOLD,
+            },
+        )
+
+    @staticmethod
+    def _reference_is_valid(image: Image.Image) -> bool:
+        if image is None:
+            return False
+        if min(image.size) < V3_REF_MIN_SIZE:
+            return False
+        arr = np.array(image.convert("RGB"), dtype=np.float32)
+        if float(np.std(arr)) < V3_REF_MIN_STD:
+            return False
+        return True
+
+    @staticmethod
+    def _normalize_reference_image(image: Image.Image) -> Image.Image:
+        """Normaliza referência para CLIP/IP-Adapter (RGB 224x224)."""
+        img = image.convert("RGB")
+        w, h = img.size
+        side = min(w, h)
+        left = max(0, (w - side) // 2)
+        top = max(0, (h - side) // 2)
+        img = img.crop((left, top, left + side, top + side))
+        return img.resize((224, 224), Image.LANCZOS)
+
+    @staticmethod
+    def _compute_lineart_metrics(image_gray: Image.Image) -> Dict[str, float]:
+        arr = np.array(image_gray, dtype=np.float32)
+        gx = np.abs(np.diff(arr, axis=1))
+        gy = np.abs(np.diff(arr, axis=0))
+        grad = np.zeros_like(arr)
+        grad[:, 1:] += gx
+        grad[1:, :] += gy
+        edge_density = float(np.mean(grad > 24.0))
+        contrast_std = float(np.std(arr))
+        mean_brightness = float(np.mean(arr))
+        return {
+            "edge_density": edge_density,
+            "contrast_std": contrast_std,
+            "mean_brightness": mean_brightness,
+        }
+
+    def _run_generation_pass(
+        self,
+        *,
+        prompt: str,
+        negative_prompt: str,
+        control_image: Image.Image,
+        steps: int,
+        strength: float,
+        guidance: float,
+        control_scale: float,
+        cross_attention_kwargs: Optional[Dict[str, Any]],
+        generator: Optional[torch.Generator],
+        ip_image: Any,
+        callback,
+    ):
+        with torch.inference_mode():
+            with VAEDtypeAdapter(self.pipe.vae):
+                return self.pipe(
+                    prompt=prompt,
+                    negative_prompt=negative_prompt,
+                    image=control_image,
+                    num_inference_steps=steps,
+                    strength=strength,
+                    guidance_scale=guidance,
+                    controlnet_conditioning_scale=control_scale,
+                    cross_attention_kwargs=cross_attention_kwargs,
+                    generator=generator,
+                    output_type="pil",
+                    ip_adapter_image=ip_image,
+                    callback_on_step_end=callback,
+                    callback_on_step_end_tensor_inputs=["latents"]
+                )
+
+
+    def _apply_scheduler_profile(self, profile: str):
+        cfg = SCHEDULER_PROFILES_V3.get(profile, SCHEDULER_PROFILES_V3.get("balanced", {}))
+        beta_start = float(cfg.get("beta_start", 0.00085))
+        beta_end = float(cfg.get("beta_end", 0.012))
+        self.pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
+            self.pipe.scheduler.config,
+            beta_start=beta_start,
+            beta_end=beta_end,
+            beta_schedule='scaled_linear'
+        )
+        self.current_generation_profile = profile
+
     def generate_region(
         self,
         line_art: Image.Image,
@@ -225,25 +343,54 @@ class SD15LineartEngine(ColorizationEngine):
             except Exception:
                 generator = None
         
+        # Validação de referência visual (evita conditioning lixo)
+        if isinstance(reference_image, list):
+            valid_refs = [
+                self._normalize_reference_image(img)
+                for img in reference_image
+                if isinstance(img, Image.Image) and self._reference_is_valid(img)
+            ]
+            if len(valid_refs) != len(reference_image):
+                logger.warning("Referências inválidas removidas do IP-Adapter regional.")
+            reference_image = valid_refs if valid_refs else None
+        elif isinstance(reference_image, Image.Image):
+            if not self._reference_is_valid(reference_image):
+                logger.warning("Referência inválida detectada. IP-Adapter será desativado para esta geração.")
+                reference_image = None
+            else:
+                reference_image = self._normalize_reference_image(reference_image)
+
+        generation_profile = options.get("generation_profile", "balanced")
+        profile_cfg = GENERATION_PROFILES_V3.get(generation_profile, GENERATION_PROFILES_V3["balanced"])
+        if generation_profile != self.current_generation_profile:
+            self._apply_scheduler_profile(generation_profile)
+
         # Configura IP-Adapter Scale
         # 0.0 se sem referência, 0.6-0.7 se com referência
-        ip_scale = 0.7 if reference_image else 0.0
+        default_ip_scale = float(profile_cfg.get("ip_scale", V3_IP_SCALE))
+        ip_scale = options.get("ip_adapter_scale", default_ip_scale) if reference_image else 0.0
         self.pipe.set_ip_adapter_scale(ip_scale)
-        
+
         # Prepara referência (se houver)
         ip_image = reference_image if reference_image else Image.new("RGB", (224, 224), (0,0,0))
         
         # Parâmetros de geração (Importados no topo)
-        
         quality_mode = options.get("quality_mode", "balanced")
         preset = QUALITY_PRESETS.get(quality_mode, QUALITY_PRESETS["balanced"])
         steps = preset.get("steps", V3_STEPS)
         
         strength = V3_STRENGTH
-        control_scale = options.get("control_scale", 0.7) # Reduzido de 0.8 para 0.7 para mais naturalidade
-        guidance = V3_GUIDANCE_SCALE
-        
-        logger.debug(f"Gerando região com IP-Adapter scale={ip_scale}, Steps={steps}")
+        control_scale = options.get("control_scale", float(profile_cfg.get("control_scale", V3_CONTROL_SCALE)))
+        guidance = options.get("guidance_scale", float(profile_cfg.get("guidance_scale", V3_GUIDANCE_SCALE)))
+
+        logger.info(
+            "Generation profile=%s steps=%s guidance=%.2f control=%.2f ip_scale=%.2f",
+            generation_profile,
+            steps,
+            guidance,
+            control_scale,
+            ip_scale,
+        )
         
         # DOWN/UPSCALE STRATEGY (Safety for SD 1.5)
         # Avoids "double head" artifacts at high resolutions > 1024px
@@ -277,19 +424,31 @@ class SD15LineartEngine(ColorizationEngine):
         # Manga page is mostly white (> 200). Inverted lineart is mostly black (< 50).
         
         from PIL import ImageOps
-        import numpy as np
-        
-        img_np = np.array(control_image.convert("L"))
-        mean_brightness = np.mean(img_np)
-        
-        if mean_brightness > 127:
+
+        bw_control = control_image.convert("L")
+        lineart_metrics = self._compute_lineart_metrics(bw_control)
+        logger.debug(
+            "Lineart metrics: edge=%.4f contrast_std=%.2f mean=%.2f",
+            lineart_metrics["edge_density"],
+            lineart_metrics["contrast_std"],
+            lineart_metrics["mean_brightness"],
+        )
+
+        # Auto-tuning defensivo para scans de baixo contraste
+        if lineart_metrics["edge_density"] < V3_LINEART_MIN_EDGE_DENSITY:
+            bw_control = ImageOps.autocontrast(bw_control, cutoff=V3_LINEART_AUTOCONTRAST_CUTOFF)
+            lineart_metrics = self._compute_lineart_metrics(bw_control)
+            logger.info(
+                "Lineart auto-contrast aplicado (edge=%.4f).",
+                lineart_metrics["edge_density"],
+            )
+
+        if lineart_metrics["mean_brightness"] > 127:
             # Likely Black-on-White (Standard Manga) -> INVERT
-            # Refinement: Use Threshold to ensure clean lines
-            bw_control = control_image.convert("L")
             control_image = ImageOps.invert(bw_control).convert("RGB")
         else:
             # Likely White-on-Black (Already Lineart Map) -> KEEP
-            pass
+            control_image = bw_control.convert("RGB")
             
         # REGIONAL IP-ADAPTER LOGIC
         # Handles list of images and masks for multi-character support
@@ -328,7 +487,7 @@ class SD15LineartEngine(ColorizationEngine):
         except Exception as e:
             logger.warning(f"Failed to save debug images: {e}")
         
-        if isinstance(ip_image, list) and not isinstance(ip_image[0], (int, float)):
+        if isinstance(ip_image, list) and ip_image and not isinstance(ip_image[0], (int, float)):
              # Additional regional logic if needed (e.g. validating lengths)
              pass
         
@@ -351,59 +510,109 @@ class SD15LineartEngine(ColorizationEngine):
                  
                  cross_attention_kwargs = {"ip_adapter_masks": resized_masks}
                  
-                 # Apply scale from settings (default 0.7)
-                 scale = options.get('ip_adapter_scale', 0.7)
+                 # Apply scale from settings (default 0.7), but never when no reference
+                 scale = options.get('ip_adapter_scale', V3_IP_SCALE) if reference_image else 0.0
                  self.pipe.set_ip_adapter_scale(scale)
+                 ip_scale = scale
                  
         # Dynamic IP-Adapter End Step Logic
-        end_step_ratio = options.get('ip_adapter_end_step', 1.0)
-        target_scale = options.get('ip_adapter_scale', 0.7)
-        
+        end_step_ratio = float(options.get('ip_adapter_end_step', IP_ADAPTER_END_STEP))
+        end_step_ratio = max(0.0, min(1.0, end_step_ratio))
+        target_scale = ip_scale if end_step_ratio > 0.0 else 0.0
+
         def ip_adapter_step_callback(pipe, step, timestep, callback_kwargs):
             # step is integer 0..num_inference_steps-1
+            latents = callback_kwargs.get("latents") if isinstance(callback_kwargs, dict) else None
+            if isinstance(latents, torch.Tensor):
+                if torch.isnan(latents).any() or torch.isinf(latents).any():
+                    raise GenerationError("Latents inválidos detectados (NaN/Inf)")
+                max_abs = float(torch.max(torch.abs(latents)).detach().cpu().item())
+                if max_abs > V3_LATENT_ABS_MAX:
+                    raise GenerationError(f"Latents com magnitude extrema detectados (max_abs={max_abs:.2f})")
+
+            if end_step_ratio <= 0.0:
+                pipe.set_ip_adapter_scale(0.0)
+                return callback_kwargs
+
             cutoff_step = int(steps * end_step_ratio)
-            
+
             if step >= cutoff_step:
                 pipe.set_ip_adapter_scale(0.0)
             else:
                 pipe.set_ip_adapter_scale(target_scale)
-            
+
             return callback_kwargs
 
         try:
-            with torch.inference_mode():
-                # Defensiva: Usa Adapter para garantir compatibilidade FP16/FP32 no VAE Decode
-                with VAEDtypeAdapter(self.pipe.vae):
-                    result = self.pipe(
-                        prompt=prompt,
-                        negative_prompt=negative_prompt,
-                        image=control_image,
-                        num_inference_steps=steps,
-                        strength=strength,
-                        guidance_scale=guidance,
-                        controlnet_conditioning_scale=control_scale,
-                        cross_attention_kwargs=cross_attention_kwargs,
-                        generator=generator,
-                        output_type="pil",
-                        ip_adapter_image=ip_image,
-                        callback_on_step_end=ip_adapter_step_callback,
-                        callback_on_step_end_tensor_inputs=["latents"]
-                    )
-            
+            result = self._run_generation_pass(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                control_image=control_image,
+                steps=steps,
+                strength=strength,
+                guidance=guidance,
+                control_scale=control_scale,
+                cross_attention_kwargs=cross_attention_kwargs,
+                generator=generator,
+                ip_image=ip_image,
+                callback=ip_adapter_step_callback,
+            )
+
             # Reset scale to avoid side-effects
             self.pipe.set_ip_adapter_scale(target_scale)
-            
+
             # Obtém imagem resultante
             output_image = result.images[0]
-            
-            # Resize back if needed (CORREÇÃO: movido para antes do return)
+            metrics = self._analyze_image_artifacts(output_image)
+            logger.info(
+                "Output metrics: sat=%.3f extreme=%.3f color_std=%.3f",
+                metrics["saturation_mean"],
+                metrics["extreme_pixels_ratio"],
+                metrics["color_std"],
+            )
+
+            # Quality gate + retry com profile seguro
+            if V3_RETRY_ON_ARTIFACTS and self._is_psychedelic_output(metrics):
+                logger.warning("Artifact gate acionado. Reexecutando com profile SAFE.")
+                safe_profile = GENERATION_PROFILES_V3.get("safe", {})
+                safe_guidance = min(guidance, float(safe_profile.get("guidance_scale", V3_SAFE_GUIDANCE_SCALE)))
+                safe_control_scale = min(control_scale, float(safe_profile.get("control_scale", V3_SAFE_CONTROL_SCALE)))
+                safe_default_ip = float(safe_profile.get("ip_scale", V3_SAFE_IP_SCALE))
+                safe_ip_scale = min(target_scale, safe_default_ip) if reference_image else 0.0
+                target_scale = safe_ip_scale
+                self.pipe.set_ip_adapter_scale(safe_ip_scale)
+
+                safe_result = self._run_generation_pass(
+                    prompt=prompt,
+                    negative_prompt=negative_prompt,
+                    control_image=control_image,
+                    steps=steps,
+                    strength=strength,
+                    guidance=safe_guidance,
+                    control_scale=safe_control_scale,
+                    cross_attention_kwargs=cross_attention_kwargs,
+                    generator=generator,
+                    ip_image=ip_image,
+                    callback=ip_adapter_step_callback,
+                )
+                output_image = safe_result.images[0]
+                safe_metrics = self._analyze_image_artifacts(output_image)
+                logger.info(
+                    "SAFE output metrics: sat=%.3f extreme=%.3f color_std=%.3f",
+                    safe_metrics["saturation_mean"],
+                    safe_metrics["extreme_pixels_ratio"],
+                    safe_metrics["color_std"],
+                )
+                self.pipe.set_ip_adapter_scale(target_scale)
+
+            # Resize back if needed
             if needs_resize:
                 logger.info(f"Upscaling result: {output_image.size} -> {original_size}")
                 output_image = output_image.resize(original_size, Image.LANCZOS)
-            
+
             return output_image
-            
-        except RuntimeError as e:
+
+        except (RuntimeError, GenerationError) as e:
             if "out of memory" in str(e).lower():
                 logger.warning("CUDA OOM in Parallel Regional IP-Adapter. Switching to Sequential Fallback.")
                 torch.cuda.empty_cache()

@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from core.logging.setup import get_logger
+from config.settings import MASK_MIN_AREA_RATIO, MASK_MAX_COMPONENTS
 
 logger = get_logger("MaskProcessor")
 
@@ -76,6 +77,21 @@ class MaskProcessor:
                     f"(close={close_kernel_size}, erode={erosion_pixels}, "
                     f"blur={blur_sigma})")
     
+
+    def _is_mask_quality_valid(self, mask: np.ndarray) -> bool:
+        h, w = mask.shape[:2]
+        area_ratio = float(np.mean(mask > 0))
+        if area_ratio < MASK_MIN_AREA_RATIO:
+            return False
+
+        num_labels, _ = cv2.connectedComponents((mask > 0).astype(np.uint8))
+        # connectedComponents conta background como label 0
+        components = max(0, num_labels - 1)
+        if components > MASK_MAX_COMPONENTS:
+            return False
+
+        return True
+
     def process_masks(
         self,
         segmentation_results: Dict[str, 'SegmentationResult'],
@@ -99,12 +115,14 @@ class MaskProcessor:
         for char_id, seg_result in segmentation_results.items():
             raw_masks[char_id] = seg_result.mask
         
-        # 2. Aplica morphological close para limpar bordas
+        # 2. Aplica morphological close para limpar bordas + gate de qualidade
         closed_masks = {}
         for char_id, mask in raw_masks.items():
-            closed_masks[char_id] = self.apply_morphological_close(
-                mask, self.close_kernel_size
-            )
+            candidate = self.apply_morphological_close(mask, self.close_kernel_size)
+            if not self._is_mask_quality_valid(candidate):
+                logger.warning(f"Máscara rejeitada por qualidade: {char_id}")
+                continue
+            closed_masks[char_id] = candidate
         
         # 3. Resolve oclusões via Z-Ordering
         occlusion_masks = self.compute_occlusion_masks(closed_masks, depth_order)
@@ -178,22 +196,24 @@ class MaskProcessor:
             Máscaras com oclusões resolvidas
         """
         result = {}
-        processed_masks = []  # Máscaras de personagens já processados (mais à frente)
-        
+        front_union = None  # União booleana das máscaras à frente
+
         for char_id in depth_order:
             if char_id not in masks:
                 continue
-                
-            mask = masks[char_id].copy()
-            
-            # Subtrai área dos personagens à frente
-            for front_mask in processed_masks:
-                # Subtração booleana: remove pixels onde há personagem à frente
-                mask = np.where(front_mask > 0, 0, mask)
-            
-            result[char_id] = mask
-            processed_masks.append(masks[char_id])  # Adiciona máscara original
-        
+
+            mask_bool = masks[char_id] > 0
+
+            # Subtração booleana robusta: remove área ocupada por personagens à frente
+            if front_union is not None:
+                mask_bool = np.logical_and(mask_bool, np.logical_not(front_union))
+
+            result[char_id] = (mask_bool.astype(np.uint8) * 255)
+
+            # Atualiza união de primeiro plano com máscara ORIGINAL (não subtraída)
+            front_mask_bool = masks[char_id] > 0
+            front_union = front_mask_bool if front_union is None else np.logical_or(front_union, front_mask_bool)
+
         return result
     
     def _apply_overlap_dilation(
@@ -212,18 +232,28 @@ class MaskProcessor:
         
         result = {}
         
+        front_union = None
+
         for idx, char_id in enumerate(depth_order):
             if char_id not in masks:
                 continue
-            
+
             mask, was_occluded, overlap_pixels = masks[char_id]
-            
-            # Aplica dilatação em personagens de fundo (não o primeiro)
+            mask_bool = mask > 0
+
+            # Aplica dilatação em personagens de fundo (não o primeiro),
+            # mas evita invadir área já ocupada pelo foreground.
             if idx > 0:  # Não é o personagem mais à frente
-                mask = self.apply_dilation(mask, self.overlap_dilation)
-            
-            result[char_id] = (mask, was_occluded, overlap_pixels)
-        
+                dilated = self.apply_dilation((mask_bool.astype(np.uint8) * 255), self.overlap_dilation) > 0
+                if front_union is not None:
+                    dilated = np.logical_and(dilated, np.logical_not(front_union))
+                mask_bool = np.logical_or(mask_bool, dilated)
+
+            result[char_id] = (mask_bool.astype(np.uint8) * 255, was_occluded, overlap_pixels)
+
+            original_bool = masks[char_id][0] > 0
+            front_union = original_bool if front_union is None else np.logical_or(front_union, original_bool)
+
         return result
     
     # =========================================================================

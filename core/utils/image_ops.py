@@ -3,7 +3,7 @@ MangaAutoColor Pro - Image Operations Utilities
 Funções comuns de processamento de imagem e geometria para evitar duplicação.
 """
 
-from typing import Tuple, List, Union
+from typing import Tuple, List, Union, Optional
 import numpy as np
 import cv2
 from PIL import Image
@@ -107,20 +107,37 @@ def create_context_crop(
 
 
 def extract_canny_edges(
-    image: np.ndarray, 
-    low_threshold: int = 50, 
-    high_threshold: int = 150
+    image: np.ndarray,
+    low_threshold: Optional[int] = 50,
+    high_threshold: Optional[int] = 150,
+    blur_ksize: int = 3
 ) -> np.ndarray:
     """
-    Extrai arestas usando Canny.
-    Se a imagem for RGB, converte para Grayscale primeiro.
+    Extrai arestas usando Canny com limiar opcionalmente adaptativo.
+
+    - Se low/high forem None, calcula limiares por mediana (auto-canny).
+    - Blur leve reduz ruído e melhora continuidade do lineart.
     """
     if len(image.shape) == 3:
         gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
     else:
         gray = image
-        
-    return cv2.Canny(gray, low_threshold, high_threshold)
+
+    gray = gray.astype(np.uint8, copy=False)
+
+    if blur_ksize and blur_ksize > 1:
+        blur_ksize = blur_ksize if blur_ksize % 2 == 1 else blur_ksize + 1
+        gray = cv2.GaussianBlur(gray, (blur_ksize, blur_ksize), 0)
+
+    if low_threshold is None or high_threshold is None:
+        median = float(np.median(gray))
+        sigma = 0.33
+        low_threshold = int(max(0, (1.0 - sigma) * median))
+        high_threshold = int(min(255, (1.0 + sigma) * median))
+        if high_threshold <= low_threshold:
+            high_threshold = min(255, low_threshold + 1)
+
+    return cv2.Canny(gray, int(low_threshold), int(high_threshold))
 
 
 def create_gaussian_mask(

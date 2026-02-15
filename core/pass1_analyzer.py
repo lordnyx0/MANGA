@@ -395,9 +395,6 @@ class Pass1Analyzer:
         Returns:
             Lista de Detection com body_crop e face_crop
         """
-        # YOLO detection com grouping de body/face
-        yolo = self._get_yolo_detector()
-        
         # YOLO detection - captura TUDO primeiro
         yolo = self._get_yolo_detector()
         all_detections = yolo.detect(image)
@@ -492,7 +489,8 @@ class Pass1Analyzer:
         """
         Extrai lineart da imagem.
         """
-        return extract_canny_edges(image, 50, 150)
+        # Limiar adaptativo do Canny reduz perda de lineart em scans claros/escuros
+        return extract_canny_edges(image, low_threshold=None, high_threshold=None)
     
     def _extract_character_data(
         self, 

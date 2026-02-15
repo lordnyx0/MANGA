@@ -171,6 +171,91 @@ class YOLODetector:
             print(f"[AVISO] Não foi possível introspectar classes: {e}")
             self.class_map = self.CLASS_NAMES.copy()
     
+    @staticmethod
+    def _bbox_area(bbox: Tuple[int, int, int, int]) -> int:
+        x1, y1, x2, y2 = bbox
+        return max(0, x2 - x1) * max(0, y2 - y1)
+
+    @staticmethod
+    def _bbox_iou(b1: Tuple[int, int, int, int], b2: Tuple[int, int, int, int]) -> float:
+        x11, y11, x12, y12 = b1
+        x21, y21, x22, y22 = b2
+        xi1, yi1 = max(x11, x21), max(y11, y21)
+        xi2, yi2 = min(x12, x22), min(y12, y22)
+        if xi2 <= xi1 or yi2 <= yi1:
+            return 0.0
+        inter = (xi2 - xi1) * (yi2 - yi1)
+        a1 = YOLODetector._bbox_area(b1)
+        a2 = YOLODetector._bbox_area(b2)
+        union = a1 + a2 - inter
+        return inter / union if union > 0 else 0.0
+
+    @staticmethod
+    def _sanitize_bbox(
+        bbox: Tuple[int, int, int, int],
+        width: int,
+        height: int
+    ) -> Optional[Tuple[int, int, int, int]]:
+        x1, y1, x2, y2 = bbox
+        x1 = max(0, min(int(x1), width))
+        y1 = max(0, min(int(y1), height))
+        x2 = max(0, min(int(x2), width))
+        y2 = max(0, min(int(y2), height))
+        if x2 <= x1 or y2 <= y1:
+            return None
+        return (x1, y1, x2, y2)
+
+    def _deduplicate_by_overlap(self, detections: List[DetectionResult]) -> List[DetectionResult]:
+        """Reduz duplicatas por classe usando IoU + contenção."""
+        if not detections:
+            return detections
+
+        class_iou_threshold = {
+            0: 0.55,  # body
+            1: 0.35,  # face
+            2: 0.65,  # frame
+            3: 0.30,  # text
+        }
+
+        grouped: Dict[int, List[DetectionResult]] = {}
+        for det in detections:
+            grouped.setdefault(det.class_id, []).append(det)
+
+        final_dets: List[DetectionResult] = []
+        for class_id, cls_dets in grouped.items():
+            cls_dets.sort(key=lambda d: (d.confidence, d.prominence_score), reverse=True)
+            kept: List[DetectionResult] = []
+            threshold = class_iou_threshold.get(class_id, 0.5)
+
+            for candidate in cls_dets:
+                cand_area = self._bbox_area(candidate.bbox)
+                should_keep = True
+                for kept_det in kept:
+                    iou = self._bbox_iou(candidate.bbox, kept_det.bbox)
+                    if iou >= threshold:
+                        should_keep = False
+                        break
+
+                    # Supressão adicional por contenção quase total (bom para texto/face duplicados)
+                    kx1, ky1, kx2, ky2 = kept_det.bbox
+                    cx1, cy1, cx2, cy2 = candidate.bbox
+                    ix1, iy1 = max(kx1, cx1), max(ky1, cy1)
+                    ix2, iy2 = min(kx2, cx2), min(ky2, cy2)
+                    if ix2 > ix1 and iy2 > iy1 and cand_area > 0:
+                        containment = ((ix2 - ix1) * (iy2 - iy1)) / cand_area
+                        if containment >= 0.9 and candidate.confidence <= kept_det.confidence:
+                            should_keep = False
+                            break
+
+                if should_keep:
+                    kept.append(candidate)
+
+            final_dets.extend(kept)
+
+        # Mantém ordenação global por relevância para estabilizar pipeline downstream
+        final_dets.sort(key=lambda d: (d.class_id in self.CHARACTER_CLASSES, d.prominence_score, d.confidence), reverse=True)
+        return final_dets
+
     def detect(self, image: np.ndarray) -> List[DetectionResult]:
         """
         Detecta elementos em uma imagem de mangá.
@@ -236,7 +321,14 @@ class YOLODetector:
             for box in result.boxes:
                 # Coordenadas
                 x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+                sanitized = self._sanitize_bbox((x1, y1, x2, y2), image.shape[1], image.shape[0])
+                if sanitized is None:
+                    continue
+                x1, y1, x2, y2 = sanitized
+
+                # Ignora caixas minúsculas que degradam pairing/masking
+                if (x2 - x1) < 4 or (y2 - y1) < 4:
+                    continue
                 
                 # Confiança
                 conf = float(box.conf[0].cpu().numpy())
@@ -283,6 +375,9 @@ class YOLODetector:
                 
                 detections.append(detection)
         
+        # Reduz duplicatas por overlap/contenção (melhora crops, masks e pairing body/face)
+        detections = self._deduplicate_by_overlap(detections)
+
         # Ordena por prominence (mais importantes primeiro)
         character_detections = [d for d in detections if d.class_id in self.CHARACTER_CLASSES]
         character_detections.sort(key=lambda x: x.prominence_score, reverse=True)
@@ -478,15 +573,19 @@ class YOLODetector:
         img_center_x = img_width / 2
         img_center_y = img_height / 2
         
-        # Distância do centro (normalizada)
-        dist_x = abs(center_x - img_center_x) / (img_width / 2)
-        dist_y = abs(center_y - img_center_y) / (img_height / 2)
-        centrality = 1.0 - (dist_x + dist_y) / 2
-        
-        # Prominence = área * centralidade
-        prominence = area_ratio * centrality
-        
-        return min(prominence, 1.0)
+        # Distância radial normalizada (0 no centro, 1 na diagonal)
+        dx = (center_x - img_center_x) / max(img_width / 2, 1)
+        dy = (center_y - img_center_y) / max(img_height / 2, 1)
+        radial_dist = min(1.0, (dx * dx + dy * dy) ** 0.5)
+        centrality = 1.0 - radial_dist
+
+        # Peso de escala: prioriza personagens médios/grandes sem explodir para bboxes gigantes
+        area_weight = min(1.0, area_ratio ** 0.5)
+
+        # Combinação robusta para ranking (mais estável para seleção top-k)
+        prominence = 0.65 * area_weight + 0.35 * centrality
+
+        return float(max(0.0, min(prominence, 1.0)))
     
     # inflate_bbox REMOVED (replaced by calculate_context_bbox)
     # create_gaussian_mask REMOVED (imported from image_ops)
