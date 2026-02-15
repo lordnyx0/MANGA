@@ -284,7 +284,7 @@ run_tests.bat  # Roda Unit, Integration e E2E em sequência
 
 ---
 
-*Documento atualizado em: 14/02/2026 (v3.0.1 + Bubble Masking + AVQV)*
+*Documento atualizado em: 15/02/2026 (v3.0.2 + hardening de detecção/masking)*
 
 
 ## 🧯 Plano Arquitetural para Eliminar Artefatos "Psicodélicos/Fritos"
@@ -305,9 +305,12 @@ Este plano consolida melhorias **obrigatórias** para estabilizar a geração no
 
 ### C. Robustez de Detecção e Máscaras (Pass 1)
 1. **Deduplicação de detecções por classe (IoU + contenção)** antes do pairing body/face.
-2. **Subtração de oclusão com união booleana (`front_union`)** para evitar reintrodução de overlap.
-3. **Dilatação de fundo com proteção de foreground** (não invadir pixels já ocupados).
-4. **Gates de qualidade de máscara**: área mínima, conectividade, e validação de cobertura por personagem.
+2. **Threshold por classe na detecção**: `face` e `text` com limiares específicos (mais baixos que `body`) para melhorar recall de rostos e balões sobrepostos sem abrir ruído global em todas as classes.
+3. **Subtração de oclusão com união booleana (`front_union`)** para evitar reintrodução de overlap.
+4. **Dilatação de fundo com proteção de foreground** (não invadir pixels já ocupados).
+5. **Gates de qualidade de máscara**: área mínima, conectividade, e validação de cobertura por personagem.
+6. **Máscaras regionais com normalização de tipo**: aceitar `PIL` e `numpy` (`float`/`uint8`) convertendo para `L` 8-bit antes do resize para latents, evitando falhas silenciosas em `ip_adapter_masks`.
+7. **Rasterização bbox pixel-accurate** no mask builder regional (evita bleed de 1px por coordenada inclusiva do `ImageDraw.rectangle`).
 
 ### D. Robustez de Lineart
 1. **Canny adaptativo por mediana** com blur leve para variação de scan.

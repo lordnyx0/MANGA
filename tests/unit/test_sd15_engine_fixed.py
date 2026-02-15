@@ -2,6 +2,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 import torch
+import numpy as np
 from PIL import Image
 
 from core.generation.engines.sd15_lineart_engine import SD15LineartEngine

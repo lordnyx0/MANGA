@@ -257,6 +257,25 @@ class SD15LineartEngine(ColorizationEngine):
         return img.resize((224, 224), Image.LANCZOS)
 
     @staticmethod
+    def _normalize_ip_adapter_mask(mask: Any) -> Optional[Image.Image]:
+        """Normaliza máscara regional para PIL L (0-255)."""
+        if isinstance(mask, Image.Image):
+            return mask.convert("L")
+
+        if isinstance(mask, np.ndarray):
+            arr = np.asarray(mask)
+            if arr.ndim == 3:
+                arr = arr[..., 0]
+            if arr.ndim != 2:
+                return None
+            if arr.dtype != np.uint8:
+                scale = 255.0 if float(np.nanmax(arr)) <= 1.0 else 1.0
+                arr = np.clip(arr * scale, 0, 255).astype(np.uint8)
+            return Image.fromarray(arr, mode="L")
+
+        return None
+
+    @staticmethod
     def _compute_lineart_metrics(image_gray: Image.Image) -> Dict[str, float]:
         arr = np.array(image_gray, dtype=np.float32)
         gx = np.abs(np.diff(arr, axis=1))
@@ -524,11 +543,11 @@ class SD15LineartEngine(ColorizationEngine):
                  
                  resized_masks = []
                  for m in ip_masks:
-                     if hasattr(m, 'resize'): # PIL
-                         m_resized = m.resize((w_lat, h_lat), Image.NEAREST)
-                         resized_masks.append(m_resized)
-                     else:
-                         resized_masks.append(m) # Assume ready
+                     normalized_mask = self._normalize_ip_adapter_mask(m)
+                     if normalized_mask is None:
+                         logger.warning("Máscara IP-Adapter com tipo/formato inválido: %s", type(m).__name__)
+                         continue
+                     resized_masks.append(normalized_mask.resize((w_lat, h_lat), Image.NEAREST))
                  
                  cross_attention_kwargs = {"ip_adapter_masks": resized_masks}
                  

@@ -106,6 +106,11 @@ class Pass1Analyzer:
         
         logger.info(f"Pass1Analyzer inicializado (device={device}, "
                    f"sam2={enable_sam2}, zbuffer={enable_zbuffer})")
+
+    @staticmethod
+    def _is_character_detection(class_id: int) -> bool:
+        """Retorna True para classes que representam personagem (body/face)."""
+        return class_id in (DetectionClass.BODY.value, DetectionClass.FACE.value)
     
     def _get_yolo_detector(self):
         """Lazy loading do YOLO"""
@@ -226,6 +231,8 @@ class Pass1Analyzer:
         # 3. Extração de identidades e paletas
         characters = []
         for det in detections:
+            if not self._is_character_detection(det.class_id):
+                continue
             char_data = self._extract_character_data(det, image_np)
             characters.append(char_data)
         
@@ -286,7 +293,7 @@ class Pass1Analyzer:
         """
         # Filtra apenas detecções de personagens (não texto)
         char_detections = [d for d in detections 
-                          if d.class_id in (DetectionClass.BODY.value, DetectionClass.FACE.value)]
+                          if self._is_character_detection(d.class_id)]
         
         if not char_detections:
             return detections
