@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.coverage
+.cache
+htmlcov/
+
+# Environments
+.env
+.venv
+venv/
+ENV/
+
+# MangaAutoColor Pro Specific
+cache/
+chapter_cache/
+output/
+logs/
+uploads/
+models/
+*.txt
+*.log
+!requirements.txt
+!README.md
+
+# OS
+.DS_Store
+Thumbs.db

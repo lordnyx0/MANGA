@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 320px;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+    }
+    .header { text-align: center; margin-bottom: 16px; }
+    .header h1 { font-size: 16px; color: #667eea; }
+    .status {
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 8px 12px; background: #16213e; border-radius: 8px;
+      margin-bottom: 12px; font-size: 12px;
+    }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #e74c3c; }
+    .status-dot.online { background: #2ecc71; }
+    .status-dot.processing { background: #f39c12; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .mode-tabs { display: flex; gap: 4px; margin-bottom: 12px; background: #16213e; padding: 4px; border-radius: 8px; }
+    .mode-tab { flex: 1; padding: 8px; background: transparent; border: none; color: #aaa; cursor: pointer; border-radius: 6px; font-size: 12px; }
+    .mode-tab.active { background: #667eea; color: white; }
+    .mode-content { display: none; }
+    .mode-content.active { display: block; }
+    .btn { width: 100%; padding: 12px; background: #667eea; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 500; }
+    .btn:hover:not(:disabled) { background: #5a6fd6; }
+    .btn:disabled { background: #444; cursor: not-allowed; opacity: 0.7; }
+    .btn.secondary { background: #0f3460; margin-top: 8px; }
+    .btn.success { background: #27ae60; }
+    .detected-info { margin: 12px 0; padding: 12px; background: #16213e; border-radius: 8px; font-size: 12px; }
+    .detected-count { font-size: 24px; font-weight: bold; color: #667eea; }
+    .image-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 8px; max-height: 100px; overflow-y: auto; }
+    .image-thumb { aspect-ratio: 1; background: #0f3460; border-radius: 4px; overflow: hidden; }
+    .image-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .progress-container { margin-top: 12px; padding: 12px; background: #16213e; border-radius: 8px; display: none; }
+    .progress-bar { width: 100%; height: 6px; background: #0f3460; border-radius: 3px; overflow: hidden; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, #667eea, #764ba2); transition: width 0.3s; width: 0%; }
+    .chapter-id-box { margin-top: 8px; padding: 8px; background: #0f3460; border-radius: 6px; font-family: monospace; font-size: 10px; color: #667eea; word-break: break-all; }
+    .error-message { color: #e74c3c; font-size: 11px; margin-top: 10px; padding: 10px; background: rgba(231, 76, 60, 0.1); border-radius: 6px; display: none; }
+    .error-message.active { display: block; }
+    .config { margin-bottom: 12px; }
+    .config label { display: block; font-size: 10px; color: #888; margin-bottom: 4px; }
+    .config input { width: 100%; padding: 8px; background: #16213e; border: 1px solid #0f3460; color: #eee; border-radius: 6px; font-size: 12px; }
+    .info-text { margin-top: 12px; font-size: 10px; color: #666; text-align: center; }
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid transparent; border-top-color: white; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .checkbox-wrapper { display: flex; align-items: center; gap: 8px; padding: 8px; background: #16213e; border-radius: 6px; margin-bottom: 8px; }
+    .checkbox-wrapper input[type="checkbox"] { width: 16px; height: 16px; margin: 0; cursor: pointer; accent-color: #667eea; }
+    .checkbox-wrapper label { margin: 0; font-size: 11px; color: #aaa; cursor: pointer; user-select: none; }
+  </style>
+</head>
+<body>
+  <div class="header"><h1>MangaAutoColor Pro</h1></div>
+  
+  <div class="status" id="statusBox">
+    <div class="status-dot" id="statusDot"></div>
+    <span id="statusText">Conectando...</span>
+  </div>
+
+  <div class="mode-tabs">
+    <button class="mode-tab active" data-mode="single">Unica</button>
+    <button class="mode-tab" data-mode="chapter">Pagina</button>
+  </div>
+
+  <div class="mode-content active" id="single-mode">
+    <div class="config">
+      <label>URL da API</label>
+      <input type="text" id="apiUrl" value="http://localhost:8000">
+    </div>
+    <button class="btn" id="saveBtn">Salvar Config</button>
+    <div class="info-text">Clique com botao direito em qualquer imagem para colorizar</div>
+  </div>
+
+  <div class="mode-content" id="chapter-mode">
+    <div class="config">
+      <label>URL da API</label>
+      <input type="text" id="apiUrlChapter" value="http://localhost:8000">
+    </div>
+
+    <div class="config" style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
+      <input type="checkbox" id="textCompositingCheck" style="width: auto; margin: 0;">
+      <label for="textCompositingCheck" style="margin: 0; font-size: 11px; color: #aaa; cursor: pointer;">
+        Preservar texto original (beta)
+      </label>
+    </div>
+    <div style="font-size: 9px; color: #666; margin-left: 22px; margin-bottom: 8px;">
+      Pode causar artefatos. Recomendado: desativado.
+    </div>
+
+    <div class="config" style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
+      <input type="checkbox" id="maxQualityCheck" style="width: auto; margin: 0;" checked>
+      <label for="maxQualityCheck" style="margin: 0; font-size: 11px; color: #aaa; cursor: pointer;">
+        Máxima qualidade (HD)
+      </label>
+    </div>
+    <div style="font-size: 9px; color: #666; margin-left: 22px; margin-bottom: 8px;">
+      Desativar para tamanhos menores (~60% do tamanho).
+    </div>
+
+    <div class="config" style="margin-top: 12px;">
+      <label for="stylePresetSelect" style="font-size: 10px; color: #888; margin-bottom: 4px; display: block;">
+        Estilo de Colorização
+      </label>
+      <select id="stylePresetSelect" style="width: 100%; padding: 8px; background: #16213e; border: 1px solid #0f3460; color: #eee; border-radius: 6px; font-size: 12px;">
+        <option value="default">Padrão (Natural)</option>
+        <option value="vibrant">Vibrante (Saturado)</option>
+        <option value="muted">Suave (Pastel)</option>
+        <option value="sepia">Sépia (Vintage)</option>
+        <option value="flashback">Flashback (Desbotado)</option>
+        <option value="dream">Sonho (Etnéreo)</option>
+        <option value="nightmare">Pesadelo (Sombrio)</option>
+      </select>
+    </div>
+    <div style="font-size: 9px; color: #666; margin-bottom: 12px;">
+      Escolha o estilo visual (ignorado se houver imagens de referência).
+    </div>
+
+    <div class="config" style="margin-top: 12px;">
+      <label style="font-size: 10px; color: #888; margin-bottom: 4px; display: block;">
+        Imagens de Referência Coloridas (Opcional)
+      </label>
+      <input type="file" id="colorReferencesInput" accept="image/*" multiple 
+             style="display: none;">
+      <button type="button" id="uploadRefBtn" 
+              style="width: 100%; padding: 8px; background: #0f3460; border: 1px dashed #667eea; 
+                     color: #aaa; border-radius: 6px; cursor: pointer; font-size: 11px;">
+        + Adicionar imagens de referência
+      </button>
+      <div id="referencePreview" style="display: none; margin-top: 8px; padding: 8px; 
+                                        background: #16213e; border-radius: 6px;">
+        <div style="font-size: 10px; color: #667eea; margin-bottom: 4px;">
+          <span id="refCount">0</span> imagem(ns) selecionada(s)
+        </div>
+        <div id="refThumbs" style="display: flex; gap: 4px; flex-wrap: wrap;"></div>
+        <button type="button" id="clearRefBtn" 
+                style="margin-top: 6px; padding: 4px 8px; background: transparent; 
+                       border: 1px solid #e74c3c; color: #e74c3c; border-radius: 4px; 
+                       cursor: pointer; font-size: 10px;">
+          Limpar referências
+        </button>
+      </div>
+    </div>
+    <div style="font-size: 9px; color: #666; margin-bottom: 12px;">
+      Imagens coloridas para extrair paletas. Quando fornecidas, o style preset é ignorado.
+    </div>
+
+    <button class="btn" id="detectBtn">Detectar Imagens</button>
+
+    <div class="detected-info" id="detectedInfo" style="display: none;">
+      <div>Imagens: <span class="detected-count" id="detectedCount">0</span></div>
+      <div class="image-grid" id="imageGrid"></div>
+    </div>
+
+    <button class="btn success" id="colorizeAllBtn" disabled>Colorir Todas</button>
+
+    <div class="progress-container" id="progressContainer">
+      <div>Passo: <span id="progressPhase">1/2</span> - <span id="progressPercent">0%</span></div>
+      <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+      <div style="font-size:10px;color:#888;margin-top:4px;" id="progressText">Aguardando...</div>
+      <div class="chapter-id-box" id="chapterIdBox" style="display: none;">ID: <span id="chapterId">-</span></div>
+    </div>
+
+    <button class="btn secondary" id="downloadBtn" style="display: none;">Download ZIP</button>
+    <div class="error-message" id="errorMessage"></div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

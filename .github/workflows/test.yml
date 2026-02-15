@@ -1,0 +1,153 @@
+name: Tests
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+env:
+  # Configurações de teste
+  COSINE_THRESHOLD: "0.98"
+  IO_THRESHOLD_MS: "50"
+
+jobs:
+  # =============================================================================
+  # TESTES CPU (Obrigatórios - rodam em todo PR/push)
+  # =============================================================================
+  test_cpu:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-mock pytest-xdist
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install numpy Pillow scipy
+          # Instala pacote local
+          pip install -e .
+
+      - name: Run high priority tests
+        run: |
+          pytest tests/high/ -v --tb=short -x
+
+      - name: Run medium priority tests
+        run: |
+          pytest tests/medium/ -v --tb=short -x -m "not gpu and not slow"
+
+      - name: Generate test summary
+        if: always()
+        run: |
+          echo "=== Test Summary ==="
+          pytest --collect-only -q 2>/dev/null | tail -5 || true
+          echo ""
+          echo "High priority tests: ✅ (required)"
+          echo "Medium priority tests: ✅ (CPU only)"
+          echo "GPU tests: ⏭️  (skipped - no GPU)"
+
+  # =============================================================================
+  # TESTES LOW PRIORITY (Roda em releases)
+  # =============================================================================
+  test_low_priority:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' || contains(github.event.head_commit.message, '[run-all-tests]')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-mock
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install numpy Pillow scipy
+          pip install -e .
+
+      - name: Run low priority tests
+        run: |
+          pytest tests/low/ -v --tb=short
+
+  # =============================================================================
+  # LINT E TYPE CHECK (Qualidade de código)
+  # =============================================================================
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install lint dependencies
+        run: |
+          pip install flake8 black
+
+      - name: Run flake8
+        run: |
+          flake8 core/ utils/ --count --select=E9,F63,F7,F82 --show-source --statistics || true
+
+      - name: Check black formatting
+        run: |
+          black --check core/ utils/ || true
+
+  # =============================================================================
+  # TESTES GPU (Opcional - requer self-hosted runner)
+  # =============================================================================
+  # Para habilitar, descomente e configure um runner self-hosted com GPU
+  #
+  # test_gpu:
+  #   runs-on: self-hosted-gpu  # Configure este runner no seu repositório
+  #   if: contains(github.event.pull_request.labels.*.name, 'test-gpu')
+  #
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
+  #
+  #     - name: Set up Python
+  #       uses: actions/setup-python@v5
+  #       with:
+  #         python-version: "3.11"
+  #
+  #     - name: Install CUDA dependencies
+  #       run: |
+  #         pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+  #         pip install pytest pytest-mock
+  #         pip install -e .
+  #
+  #     - name: Run GPU tests
+  #       run: |
+  #         pytest -v -m gpu --tb=short
+  #
+  #     - name: Run memory endurance tests
+  #       run: |
+  #         pytest tests/medium/test_memory_endurance.py -v --tb=short

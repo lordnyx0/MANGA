@@ -1,0 +1,27 @@
+import sys
+import traceback
+
+print("Starting debug_test.py")
+
+try:
+    print("Importing settings...")
+    from config import settings
+    print("Settings imported.")
+    
+    print("Importing yolo_detector...")
+    from core.detection.yolo_detector import DetectionResult
+    print("yolo_detector imported.")
+    
+    print("Importing segmentation...")
+    from core.analysis.segmentation import SegmentationResult
+    print("segmentation imported.")
+    
+    print("Importing mask_processor...")
+    from core.analysis.mask_processor import MaskProcessor
+    print("mask_processor imported.")
+
+except Exception:
+    traceback.print_exc()
+    sys.exit(1)
+
+print("All imports successful.")
