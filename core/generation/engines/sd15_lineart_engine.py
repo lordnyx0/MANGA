@@ -306,6 +306,28 @@ class SD15LineartEngine(ColorizationEngine):
                     callback_on_step_end_tensor_inputs=["latents"]
                 )
 
+    def _compute_dynamic_latent_abs_limit(self, step: int) -> float:
+        """
+        Retorna limite dinâmico para magnitude de latents.
+
+        Em schedulers ancestrais (ex.: Euler A), o ruído inicial tem sigma alto,
+        logo a magnitude absoluta dos latents no começo pode ser naturalmente
+        muito maior que o limiar base estático. Usar limite proporcional ao sigma
+        evita falso-positivo no step inicial e mantém proteção nos steps finais.
+        """
+        limit = float(V3_LATENT_ABS_MAX)
+        scheduler = getattr(self.pipe, "scheduler", None)
+        sigmas = getattr(scheduler, "sigmas", None)
+        if sigmas is None:
+            return limit
+
+        try:
+            idx = max(0, min(int(step), len(sigmas) - 1))
+            sigma = float(sigmas[idx])
+            return max(limit, sigma * 6.0)
+        except (TypeError, ValueError, RuntimeError, IndexError):
+            return limit
+
 
     def _apply_scheduler_profile(self, profile: str):
         cfg = SCHEDULER_PROFILES_V3.get(profile, SCHEDULER_PROFILES_V3.get("balanced", {}))
@@ -527,8 +549,12 @@ class SD15LineartEngine(ColorizationEngine):
                 if torch.isnan(latents).any() or torch.isinf(latents).any():
                     raise GenerationError("Latents inválidos detectados (NaN/Inf)")
                 max_abs = float(torch.max(torch.abs(latents)).detach().cpu().item())
-                if max_abs > V3_LATENT_ABS_MAX:
-                    raise GenerationError(f"Latents com magnitude extrema detectados (max_abs={max_abs:.2f})")
+                dynamic_limit = self._compute_dynamic_latent_abs_limit(step)
+                if max_abs > dynamic_limit:
+                    raise GenerationError(
+                        f"Latents com magnitude extrema detectados "
+                        f"(max_abs={max_abs:.2f}, limite={dynamic_limit:.2f}, step={step})"
+                    )
 
             if end_step_ratio <= 0.0:
                 pipe.set_ip_adapter_scale(0.0)

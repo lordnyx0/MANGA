@@ -5,7 +5,7 @@ import torch
 from PIL import Image
 
 from core.generation.engines.sd15_lineart_engine import SD15LineartEngine
-from config.settings import QUALITY_PRESETS, V3_IP_SCALE, GENERATION_PROFILES_V3
+from config.settings import QUALITY_PRESETS, V3_IP_SCALE, GENERATION_PROFILES_V3, V3_LATENT_ABS_MAX
 
 # Fixture for Engine with mocked dependencies
 @pytest.fixture
@@ -50,6 +50,23 @@ def engine():
 def test_initialization(engine):
     assert engine.device == "cpu"
     assert engine.models_loaded is False
+
+
+def test_dynamic_latent_limit_scales_with_scheduler_sigma(engine):
+    engine.pipe = MagicMock()
+    engine.pipe.scheduler = MagicMock()
+    engine.pipe.scheduler.sigmas = [9.5]
+
+    # 6 * 9.5 = 57.0 (maior que o limite estático padrão)
+    assert engine._compute_dynamic_latent_abs_limit(0) == pytest.approx(57.0)
+
+
+def test_dynamic_latent_limit_falls_back_to_static_without_sigmas(engine):
+    engine.pipe = MagicMock()
+    engine.pipe.scheduler = MagicMock()
+    engine.pipe.scheduler.sigmas = None
+
+    assert engine._compute_dynamic_latent_abs_limit(0) == pytest.approx(V3_LATENT_ABS_MAX)
 
 def test_load_models(engine, mock_sd_pipeline, mock_controlnet, mock_clip, mock_vae):
     # Execute
