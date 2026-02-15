@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 
 try:
     from config.settings import (
-        DEVICE, YOLO_CONFIDENCE, 
+        DEVICE, YOLO_CONFIDENCE, YOLO_FACE_CONFIDENCE, YOLO_TEXT_CONFIDENCE,
         CONTEXT_INFLATION_FACTOR, VERBOSE
     )
 except (ImportError, AttributeError):
@@ -40,6 +40,8 @@ except (ImportError, AttributeError):
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
     YOLO_CONFIDENCE = 0.3
     CONTEXT_INFLATION_FACTOR = 1.5
+    YOLO_FACE_CONFIDENCE = 0.22
+    YOLO_TEXT_CONFIDENCE = 0.20
     VERBOSE = True
 
 # Importa utilitários sempre (não dependem de config)
@@ -96,11 +98,15 @@ class YOLODetector:
         self,
         model_path: str = "./data/models/manga109_yolo.onnx",
         device: str = DEVICE,
-        conf_threshold: float = YOLO_CONFIDENCE
+        conf_threshold: float = YOLO_CONFIDENCE,
+        face_conf_threshold: float = YOLO_FACE_CONFIDENCE,
+        text_conf_threshold: float = YOLO_TEXT_CONFIDENCE
     ):
         self.model_path = Path(model_path)
         self.device = device
         self.conf_threshold = conf_threshold
+        self.face_conf_threshold = face_conf_threshold
+        self.text_conf_threshold = text_conf_threshold
         self.model = None
         self.class_map = {}  # Será populado após carregar modelo
         
@@ -111,7 +117,7 @@ class YOLODetector:
         self._introspect_classes()
         
         if VERBOSE:
-            print(f"[YOLODetector] Inicializado (device={device}, conf_threshold={conf_threshold})")
+            print(f"[YOLODetector] Inicializado (device={device}, conf_threshold={conf_threshold}, face_conf_threshold={face_conf_threshold}, text_conf_threshold={text_conf_threshold})")
     
     def _load_model(self):
         """
@@ -205,6 +211,16 @@ class YOLODetector:
         if x2 <= x1 or y2 <= y1:
             return None
         return (x1, y1, x2, y2)
+
+    def _class_conf_threshold(self, class_id: int) -> float:
+        """Threshold por classe para melhorar recall sem abrir ruído global."""
+        class_thresholds = {
+            0: float(self.conf_threshold),       # body
+            1: float(self.face_conf_threshold),  # face
+            2: float(self.conf_threshold),       # frame
+            3: float(self.text_conf_threshold),  # text
+        }
+        return class_thresholds.get(class_id, float(self.conf_threshold))
 
     def _deduplicate_by_overlap(self, detections: List[DetectionResult]) -> List[DetectionResult]:
         """Reduz duplicatas por classe usando IoU + contenção."""
@@ -303,7 +319,7 @@ class YOLODetector:
         # Executa detecção
         results = self.model(
             image_rgb,
-            conf=self.conf_threshold,
+            conf=min(self.conf_threshold, self.face_conf_threshold, self.text_conf_threshold),
             device=self.device,
             verbose=False
         )
@@ -337,6 +353,10 @@ class YOLODetector:
                 # Classe
                 cls = int(box.cls[0].cpu().numpy()) if box.cls is not None else 0
                 class_name = self.class_map.get(cls, f"class_{cls}")
+
+                # Threshold por classe: faces geralmente têm score menor em Manga109
+                if conf < self._class_conf_threshold(cls):
+                    continue
                 
                 # Determina tipo de detecção
                 if cls == 0:  # body

@@ -439,13 +439,19 @@ class Pass2Generator:
         iy1 = max(0, dy1 - ty1)
         ix2 = min(tile_w, dx2 - tx1)
         iy2 = min(tile_h, dy2 - ty1)
-        
+
         if ix2 <= ix1 or iy2 <= iy1:
             return None
-        
+
+        # PIL.ImageDraw.rectangle usa coordenada final inclusiva.
+        # Ajuste para manter área exatamente igual ao bbox (x2-x1, y2-y1)
+        # e evitar vazamento de 1px em máscaras regionais.
+        x2_draw = max(ix1, ix2 - 1)
+        y2_draw = max(iy1, iy2 - 1)
+
         char_mask = Image.new("L", (tile_w, tile_h), 0)
         draw = ImageDraw.Draw(char_mask)
-        draw.rectangle((ix1, iy1, ix2, iy2), fill=255)
+        draw.rectangle((ix1, iy1, x2_draw, y2_draw), fill=255)
         
         return char_mask
     

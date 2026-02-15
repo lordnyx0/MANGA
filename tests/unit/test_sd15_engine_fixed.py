@@ -2,10 +2,11 @@
 import pytest
 from unittest.mock import MagicMock, patch
 import torch
+import numpy as np
 from PIL import Image
 
 from core.generation.engines.sd15_lineart_engine import SD15LineartEngine
-from config.settings import QUALITY_PRESETS, V3_IP_SCALE, GENERATION_PROFILES_V3
+from config.settings import QUALITY_PRESETS, V3_IP_SCALE, GENERATION_PROFILES_V3, V3_LATENT_ABS_MAX
 
 # Fixture for Engine with mocked dependencies
 @pytest.fixture
@@ -50,6 +51,43 @@ def engine():
 def test_initialization(engine):
     assert engine.device == "cpu"
     assert engine.models_loaded is False
+
+
+def test_dynamic_latent_limit_scales_with_scheduler_sigma(engine):
+    engine.pipe = MagicMock()
+    engine.pipe.scheduler = MagicMock()
+    engine.pipe.scheduler.sigmas = [9.5]
+
+    # 6 * 9.5 = 57.0 (maior que o limite estático padrão)
+    assert engine._compute_dynamic_latent_abs_limit(0) == pytest.approx(57.0)
+
+
+def test_dynamic_latent_limit_falls_back_to_static_without_sigmas(engine):
+    engine.pipe = MagicMock()
+    engine.pipe.scheduler = MagicMock()
+    engine.pipe.scheduler.sigmas = None
+
+    assert engine._compute_dynamic_latent_abs_limit(0) == pytest.approx(V3_LATENT_ABS_MAX)
+
+
+
+def test_normalize_ip_adapter_mask_accepts_float_numpy(engine):
+    mask = np.zeros((8, 8), dtype=np.float32)
+    mask[2:6, 2:6] = 1.0
+
+    pil_mask = engine._normalize_ip_adapter_mask(mask)
+
+    assert pil_mask is not None
+    assert pil_mask.mode == "L"
+    arr = np.array(pil_mask)
+    assert arr.dtype == np.uint8
+    assert arr.max() == 255
+
+
+def test_normalize_ip_adapter_mask_rejects_invalid_dimensions(engine):
+    mask = np.zeros((2, 4, 4, 1), dtype=np.float32)
+    assert engine._normalize_ip_adapter_mask(mask) is None
+
 
 def test_load_models(engine, mock_sd_pipeline, mock_controlnet, mock_clip, mock_vae):
     # Execute

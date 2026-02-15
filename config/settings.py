@@ -37,6 +37,8 @@ FACE_DETECTION_SIZE = (640, 640)
 # YOLO / Detecção
 YOLO_MODEL_ID = "deepghs/manga109_yolo"
 YOLO_CONFIDENCE = 0.3              # Confiança mínima para detecção
+YOLO_FACE_CONFIDENCE = 0.22        # Threshold específico para faces (recall maior)
+YOLO_TEXT_CONFIDENCE = 0.20        # Threshold específico para texto/balões (recall maior)
 DETECTION_IOU_THRESHOLD = 0.45     # IOU threshold para NMS
 CONTEXT_INFLATION_FACTOR = 1.5     # Fator de expansão para contexto (IP-Adapter)
 

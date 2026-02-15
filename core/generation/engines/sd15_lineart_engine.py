@@ -257,6 +257,25 @@ class SD15LineartEngine(ColorizationEngine):
         return img.resize((224, 224), Image.LANCZOS)
 
     @staticmethod
+    def _normalize_ip_adapter_mask(mask: Any) -> Optional[Image.Image]:
+        """Normaliza máscara regional para PIL L (0-255)."""
+        if isinstance(mask, Image.Image):
+            return mask.convert("L")
+
+        if isinstance(mask, np.ndarray):
+            arr = np.asarray(mask)
+            if arr.ndim == 3:
+                arr = arr[..., 0]
+            if arr.ndim != 2:
+                return None
+            if arr.dtype != np.uint8:
+                scale = 255.0 if float(np.nanmax(arr)) <= 1.0 else 1.0
+                arr = np.clip(arr * scale, 0, 255).astype(np.uint8)
+            return Image.fromarray(arr, mode="L")
+
+        return None
+
+    @staticmethod
     def _compute_lineart_metrics(image_gray: Image.Image) -> Dict[str, float]:
         arr = np.array(image_gray, dtype=np.float32)
         gx = np.abs(np.diff(arr, axis=1))
@@ -305,6 +324,28 @@ class SD15LineartEngine(ColorizationEngine):
                     callback_on_step_end=callback,
                     callback_on_step_end_tensor_inputs=["latents"]
                 )
+
+    def _compute_dynamic_latent_abs_limit(self, step: int) -> float:
+        """
+        Retorna limite dinâmico para magnitude de latents.
+
+        Em schedulers ancestrais (ex.: Euler A), o ruído inicial tem sigma alto,
+        logo a magnitude absoluta dos latents no começo pode ser naturalmente
+        muito maior que o limiar base estático. Usar limite proporcional ao sigma
+        evita falso-positivo no step inicial e mantém proteção nos steps finais.
+        """
+        limit = float(V3_LATENT_ABS_MAX)
+        scheduler = getattr(self.pipe, "scheduler", None)
+        sigmas = getattr(scheduler, "sigmas", None)
+        if sigmas is None:
+            return limit
+
+        try:
+            idx = max(0, min(int(step), len(sigmas) - 1))
+            sigma = float(sigmas[idx])
+            return max(limit, sigma * 6.0)
+        except (TypeError, ValueError, RuntimeError, IndexError):
+            return limit
 
 
     def _apply_scheduler_profile(self, profile: str):
@@ -502,11 +543,11 @@ class SD15LineartEngine(ColorizationEngine):
                  
                  resized_masks = []
                  for m in ip_masks:
-                     if hasattr(m, 'resize'): # PIL
-                         m_resized = m.resize((w_lat, h_lat), Image.NEAREST)
-                         resized_masks.append(m_resized)
-                     else:
-                         resized_masks.append(m) # Assume ready
+                     normalized_mask = self._normalize_ip_adapter_mask(m)
+                     if normalized_mask is None:
+                         logger.warning("Máscara IP-Adapter com tipo/formato inválido: %s", type(m).__name__)
+                         continue
+                     resized_masks.append(normalized_mask.resize((w_lat, h_lat), Image.NEAREST))
                  
                  cross_attention_kwargs = {"ip_adapter_masks": resized_masks}
                  
@@ -527,8 +568,12 @@ class SD15LineartEngine(ColorizationEngine):
                 if torch.isnan(latents).any() or torch.isinf(latents).any():
                     raise GenerationError("Latents inválidos detectados (NaN/Inf)")
                 max_abs = float(torch.max(torch.abs(latents)).detach().cpu().item())
-                if max_abs > V3_LATENT_ABS_MAX:
-                    raise GenerationError(f"Latents com magnitude extrema detectados (max_abs={max_abs:.2f})")
+                dynamic_limit = self._compute_dynamic_latent_abs_limit(step)
+                if max_abs > dynamic_limit:
+                    raise GenerationError(
+                        f"Latents com magnitude extrema detectados "
+                        f"(max_abs={max_abs:.2f}, limite={dynamic_limit:.2f}, step={step})"
+                    )
 
             if end_step_ratio <= 0.0:
                 pipe.set_ip_adapter_scale(0.0)
