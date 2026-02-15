@@ -61,9 +61,9 @@ CONTROLNET_LINEART_ID = "lllyasviel/control_v11p_sd15s2_lineart_anime"
 IP_ADAPTER_V3_REPO = "h94/IP-Adapter"
 IP_ADAPTER_V3_FILE = "ip-adapter-plus-face_sd15.bin"
 V3_STEPS = 50                  # Aumentado para 50 para máxima nitidez (Euler A)
-V3_STRENGTH = 0.75
+V3_STRENGTH = 0.65             # Reduz ghosting estrutural (menos divergência geométrica)
 V3_GUIDANCE_SCALE = 9.0         # Aumentado para 9.0 para melhor aderência ao prompt
-V3_IP_SCALE = 0.7
+V3_IP_SCALE = 0.5              # Menos competição com ControlNet/lineart
 V3_CONTROL_SCALE = 0.8
 V3_RETRY_ON_ARTIFACTS = True
 V3_SAFE_GUIDANCE_SCALE = 7.0
@@ -77,6 +77,7 @@ V3_REF_MIN_SIZE = 64
 V3_REF_MIN_STD = 8.0
 V3_LINEART_MIN_EDGE_DENSITY = 0.008
 V3_LINEART_AUTOCONTRAST_CUTOFF = 2
+V3_COMPOSE_COLOR_BLUR_RADIUS = 0.2  # Blur leve para suavizar cor sem criar halo
 
 SCHEDULER_PROFILES_V3 = {
     "safe": {"beta_start": 0.0009, "beta_end": 0.012},
@@ -200,7 +201,8 @@ BACKGROUND_IP_SCALE = 0.0          # IP-Adapter scale = 0 para background
 
 # IP-Adapter Control (Global)
 IP_ADAPTER_SCALE_DEFAULT = 0.7     # Escala padrão (pode ser sobrescrita por V3_IP_SCALE)
-IP_ADAPTER_END_STEP = 0.6          # Step em que o IP-Adapter para de afetar (0.0-1.0)
+IP_ADAPTER_END_STEP = 0.45         # Desliga IP-Adapter mais cedo para reduzir drift no fim
+ENABLE_REFERENCE_IMAGE_FALLBACK = True  # Usa uploads/color_references quando não houver referência por char_id
 
 
 # ============================================================================

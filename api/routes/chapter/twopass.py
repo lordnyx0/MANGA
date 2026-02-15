@@ -267,8 +267,19 @@ def run_pass2_generation(chapter_id: str, page_numbers: Optional[List[int]], opt
             # Outros mapeamentos...
         )
         if options:
-            # Merge de opções extras se necessário
-            pass
+            # Merge de opções extras (corrige opções ignoradas no fluxo antigo)
+            if 'style_preset' in options:
+                gen_options.style_preset = options['style_preset']
+            if 'quality_mode' in options:
+                gen_options.quality_mode = options['quality_mode']
+            if 'preserve_original_text' in options:
+                gen_options.preserve_original_text = bool(options['preserve_original_text'])
+            if 'seed' in options:
+                gen_options.seed = options['seed']
+            if 'guidance_scale' in options:
+                gen_options.guidance_scale = float(options['guidance_scale'])
+            if 'num_inference_steps' in options:
+                gen_options.num_inference_steps = int(options['num_inference_steps'])
 
         total_pages = len(page_numbers)
         

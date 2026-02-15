@@ -32,6 +32,7 @@ from config.settings import (
     V3_REF_MIN_STD,
     V3_LINEART_MIN_EDGE_DENSITY,
     V3_LINEART_AUTOCONTRAST_CUTOFF,
+    V3_COMPOSE_COLOR_BLUR_RADIUS,
     GENERATION_PROFILES_V3,
     SCHEDULER_PROFILES_V3,
 )
@@ -418,7 +419,7 @@ class SD15LineartEngine(ColorizationEngine):
         # Parâmetros de geração (Importados no topo)
         quality_mode = options.get("quality_mode", "balanced")
         preset = QUALITY_PRESETS.get(quality_mode, QUALITY_PRESETS["balanced"])
-        steps = preset.get("steps", V3_STEPS)
+        steps = int(options.get("steps", preset.get("steps", V3_STEPS)))
         
         strength = V3_STRENGTH
         control_scale = options.get("control_scale", float(profile_cfg.get("control_scale", V3_CONTROL_SCALE)))
@@ -692,8 +693,10 @@ class SD15LineartEngine(ColorizationEngine):
                         x1, y1, x2, y2 = bbox
                         draw.rectangle([x1-4, y1-4, x2+4, y2+4], fill=(255, 255, 255))
         
-        # 2. SOFT COMPOSITION: Suaviza a cor
-        color = color.filter(ImageFilter.GaussianBlur(radius=0.5))
+        # 2. SOFT COMPOSITION: Suaviza a cor (mais conservador para evitar halos/ghosting)
+        blur_radius = float(V3_COMPOSE_COLOR_BLUR_RADIUS)
+        if blur_radius > 0:
+            color = color.filter(ImageFilter.GaussianBlur(radius=blur_radius))
         
         # 3. ALPHA BLENDING: (Phase 3 Suggestion)
         # Usa o lineart como máscara: tom escuro -> mais opaco

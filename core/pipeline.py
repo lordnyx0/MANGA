@@ -442,7 +442,10 @@ class MangaColorizationPipeline:
                 'style_preset': getattr(options, 'style_preset', 'default'),
                 'quality_mode': getattr(options, 'quality_mode', 'balanced'),
                 'preserve_original_text': preserve_text,
-                'text_compositing': preserve_text  # Alias for TileAwareGenerator
+                'text_compositing': preserve_text,  # Alias for TileAwareGenerator
+                'seed': getattr(options, 'seed', None),
+                'guidance_scale': getattr(options, 'guidance_scale', 7.5),
+                'steps': getattr(options, 'num_inference_steps', 20),
             }
             
             result = generator.generate_page(
@@ -553,6 +556,5 @@ class MangaColorizationPipeline:
             scene_breakdown=summary.get('scene_breakdown', {}),
             estimated_generation_time=num_pages * est_time_per_page
         )
-
 
 

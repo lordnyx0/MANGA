@@ -23,7 +23,8 @@ import gc
 from config.settings import (
     DEVICE, DTYPE, TILE_SIZE, TILE_OVERLAP,
     V3_STEPS, V3_GUIDANCE_SCALE, V3_CONTROL_SCALE,
-    IP_ADAPTER_END_STEP, VERBOSE
+    IP_ADAPTER_END_STEP, VERBOSE,
+    ENABLE_REFERENCE_IMAGE_FALLBACK,
 )
 from core.database.chapter_db import ChapterDatabase
 from core.generation.engines.sd15_lineart_engine import SD15LineartEngine
@@ -62,6 +63,7 @@ class Pass2Generator:
         self.device = device
         self.dtype = dtype
         self.enable_logging = enable_logging
+        self._fallback_reference_cache: Optional[Image.Image] = None
         
         # Carrega database do Pass 1
         self.db = ChapterDatabase(chapter_id)
@@ -308,7 +310,10 @@ class Pass2Generator:
             if reference_image:
                 logger.info(f"Usando referência visual para: {char_id}")
             else:
-                logger.info(f"Sem referência visual encontrada para: {char_id}")
+                logger.warning(
+                    f"Sem referência visual em REFERENCE_GALLERY para {char_id}; "
+                    "geração seguirá em modo prompt-only/IP global reduzido."
+                )
         
         # 2. Configura opções
         engine_options = options.copy()
@@ -340,8 +345,35 @@ class Pass2Generator:
                 return Image.open(ref_path).convert("RGB")
             except Exception as e:
                 logger.warning(f"Falha ao carregar referência para {char_id}: {e}")
-                return None
         
+        if ENABLE_REFERENCE_IMAGE_FALLBACK:
+            fallback = self._get_fallback_reference_image()
+            if fallback is not None:
+                logger.info(
+                    f"Fallback de referência ativado para {char_id} via uploads/color_references"
+                )
+                return fallback
+
+        return None
+
+    def _get_fallback_reference_image(self) -> Optional[Image.Image]:
+        """Retorna primeira referência colorida do capítulo para fallback visual."""
+        if self._fallback_reference_cache is not None:
+            return self._fallback_reference_cache.copy()
+
+        ref_dir = Path("./uploads/chapters") / self.chapter_id / "color_references"
+        if not ref_dir.exists():
+            return None
+
+        candidates = sorted(ref_dir.glob("*.png")) + sorted(ref_dir.glob("*.jpg")) + sorted(ref_dir.glob("*.jpeg"))
+        for ref_path in candidates:
+            try:
+                self._fallback_reference_cache = Image.open(ref_path).convert("RGB")
+                logger.info(f"Referência fallback carregada: {ref_path}")
+                return self._fallback_reference_cache.copy()
+            except Exception as exc:
+                logger.warning(f"Falha ao carregar fallback {ref_path}: {exc}")
+
         return None
 
     def _load_character_palettes(self, char_ids: List[str]) -> Dict[str, CharacterPalette]:
