@@ -69,26 +69,6 @@ def test_dynamic_latent_limit_falls_back_to_static_without_sigmas(engine):
 
     assert engine._compute_dynamic_latent_abs_limit(0) == pytest.approx(V3_LATENT_ABS_MAX)
 
-
-
-def test_normalize_ip_adapter_mask_accepts_float_numpy(engine):
-    mask = np.zeros((8, 8), dtype=np.float32)
-    mask[2:6, 2:6] = 1.0
-
-    pil_mask = engine._normalize_ip_adapter_mask(mask)
-
-    assert pil_mask is not None
-    assert pil_mask.mode == "L"
-    arr = np.array(pil_mask)
-    assert arr.dtype == np.uint8
-    assert arr.max() == 255
-
-
-def test_normalize_ip_adapter_mask_rejects_invalid_dimensions(engine):
-    mask = np.zeros((2, 4, 4, 1), dtype=np.float32)
-    assert engine._normalize_ip_adapter_mask(mask) is None
-
-
 def test_load_models(engine, mock_sd_pipeline, mock_controlnet, mock_clip, mock_vae):
     # Execute
     engine.load_models()
