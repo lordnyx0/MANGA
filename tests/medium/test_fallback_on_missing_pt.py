@@ -25,21 +25,14 @@ class TestFallbackOnMissingPt:
         """
         caplog.set_level(logging.WARNING)
         
-        # Mock do pipeline para não executar inferência real
-        def mock_generate(*args, **kwargs):
-            return make_dummy_page(size=(512, 512), seed=99)
-        
-        monkeypatch.setattr(
-            'core.generation.pipeline.TileAwareGenerator.generate_page',
-            mock_generate
-        )
+
         
         # Mock do pipeline para não executar inferência real
         def mock_generate(*args, **kwargs):
             return make_dummy_page(size=(512, 512), seed=99)
         
         monkeypatch.setattr(
-            'core.generation.pipeline.TileAwareGenerator.generate_page',
+            'core.generation.pipeline.TileAwareGenerator.generate_image',
             mock_generate
         )
         
@@ -56,10 +49,10 @@ class TestFallbackOnMissingPt:
         }
         
         # Não deve levantar exceção
-        result = gen.generate_page(
-            page_data=page_data,
-            chapter_context={},
+        result = gen.generate_image(
+            image=None,  # Mock ignora
             character_embeddings={},  # Vazio (simula cache miss)
+            detections=page_data['detections'],
             options={}
         )
         
@@ -83,7 +76,7 @@ class TestFallbackOnMissingPt:
             return make_dummy_page(size=(512, 512), seed=99)
         
         monkeypatch.setattr(
-            'core.generation.pipeline.TileAwareGenerator.generate_page',
+            'core.generation.pipeline.TileAwareGenerator.generate_image',
             mock_generate
         )
         
@@ -96,10 +89,10 @@ class TestFallbackOnMissingPt:
             'detections': []  # Vazio
         }
         
-        result = gen.generate_page(
-            page_data=page_data,
-            chapter_context={},
+        result = gen.generate_image(
+            image=None,
             character_embeddings={},
+            detections=[],
             options={}
         )
         

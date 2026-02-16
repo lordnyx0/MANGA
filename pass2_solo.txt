@@ -1,0 +1,32 @@
+﻿============================= test session starts =============================
+collecting ... collected 1 item
+
+tests/test_pass2_basic.py::test_pass2_initialization 
+-------------------------------- live log call --------------------------------
+2026-02-15 23:50:02 [    INFO] Loading faiss with AVX2 support.
+2026-02-15 23:50:02 [    INFO] Successfully loaded faiss with AVX2 support.
+2026-02-15 23:50:12 [    INFO] Inicializado: C:\Users\Nyx\AppData\Local\Temp\tmptvce31xy\test_pass2_init
+2026-02-15 23:50:12 [    INFO] 1 pßginas salvas
+2026-02-15 23:50:12 [    INFO] Cache persistido em: C:\Users\Nyx\AppData\Local\Temp\tmptvce31xy\test_pass2_init
+PASSED                                                                   [100%]
+
+============================== warnings summary ===============================
+tests/test_pass2_basic.py::test_pass2_initialization
+tests/test_pass2_basic.py::test_pass2_initialization
+  <frozen importlib._bootstrap>:241: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+tests/test_pass2_basic.py::test_pass2_initialization
+tests/test_pass2_basic.py::test_pass2_initialization
+  <frozen importlib._bootstrap>:241: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+tests/test_pass2_basic.py::test_pass2_initialization
+  <frozen importlib._bootstrap>:241: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+
+tests/test_pass2_basic.py::test_pass2_initialization
+  C:\Users\Nyx\Desktop\MANGACOLOR\venv\lib\site-packages\_pytest\python.py:170: PytestReturnNotNoneWarning: Test functions should return None, but tests/test_pass2_basic.py::test_pass2_initialization returned <class 'bool'>.
+  Did you mean to use `assert` instead of `return`?
+  See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================= 1 passed, 6 warnings in 10.88s ========================

@@ -1,0 +1,95 @@
+﻿============================= test session starts =============================
+collecting ... collected 15 items / 1 deselected / 14 selected
+
+tests/unit/test_psychedelic_fixes.py::TestSchedulerConfiguration::test_rescale_betas_zero_snr_is_false 
+-------------------------------- live log call --------------------------------
+2026-02-15 23:51:19 [    INFO] HTTP Request: HEAD https://huggingface.co/runwayml/stable-diffusion-v1-5/resolve/main/scheduler/scheduler_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-02-15 23:51:19 [    INFO] HTTP Request: HEAD https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5/resolve/main/scheduler/scheduler_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-02-15 23:51:19 [    INFO] HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/stable-diffusion-v1-5/stable-diffusion-v1-5/451f4fe16113bff5a5d2269ed5ad43b0592e9a14/scheduler%2Fscheduler_config.json "HTTP/1.1 200 OK"
+PASSED                                                                   [  7%]
+tests/unit/test_psychedelic_fixes.py::TestSchedulerConfiguration::test_clip_sample_is_false 
+-------------------------------- live log call --------------------------------
+2026-02-15 23:51:20 [    INFO] HTTP Request: HEAD https://huggingface.co/runwayml/stable-diffusion-v1-5/resolve/main/scheduler/scheduler_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-02-15 23:51:20 [    INFO] HTTP Request: HEAD https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5/resolve/main/scheduler/scheduler_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-02-15 23:51:20 [    INFO] HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/stable-diffusion-v1-5/stable-diffusion-v1-5/451f4fe16113bff5a5d2269ed5ad43b0592e9a14/scheduler%2Fscheduler_config.json "HTTP/1.1 200 OK"
+PASSED                                                                   [ 14%]
+tests/unit/test_psychedelic_fixes.py::TestVAEConfiguration::test_vae_force_upcast_is_enabled 
+-------------------------------- live log call --------------------------------
+2026-02-15 23:51:26 [    INFO] HTTP Request: HEAD https://huggingface.co/stabilityai/sd-vae-ft-mse/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-02-15 23:51:26 [    INFO] HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/stabilityai/sd-vae-ft-mse/31f26fdeee1355a5c34592e401dd41e45d25a493/config.json "HTTP/1.1 200 OK"
+2026-02-15 23:51:26 [    INFO] HTTP Request: HEAD https://huggingface.co/stabilityai/sd-vae-ft-mse/resolve/31f26fdeee1355a5c34592e401dd41e45d25a493/diffusion_pytorch_model.safetensors.index.json "HTTP/1.1 404 Not Found"
+PASSED                                                                   [ 21%]
+tests/unit/test_psychedelic_fixes.py::TestVAEConfiguration::test_vae_dtype_consistency PASSED [ 28%]
+tests/unit/test_psychedelic_fixes.py::TestVAEDtypeAdapter::test_adapter_converts_dtype PASSED [ 35%]
+tests/unit/test_psychedelic_fixes.py::TestVAEDtypeAdapter::test_adapter_detects_and_fixes_nans 
+-------------------------------- live log call --------------------------------
+2026-02-15 23:51:27 [ WARNING] VAEDtypeAdapter: Detectados 1 NaNs e 2 Infs nos latents! Corrigindo...
+PASSED                                                                   [ 42%]
+tests/unit/test_psychedelic_fixes.py::TestVAEDtypeAdapter::test_adapter_clamps_extreme_values PASSED [ 50%]
+tests/unit/test_psychedelic_fixes.py::TestVAEDtypeAdapter::test_static_decode_safe PASSED [ 57%]
+tests/unit/test_psychedelic_fixes.py::TestNegativePromptProtection::test_negative_prompt_contains_protection_terms PASSED [ 64%]
+tests/unit/test_psychedelic_fixes.py::TestPipelineIntegration::test_resize_logic_order PASSED [ 71%]
+tests/unit/test_psychedelic_fixes.py::TestConfigSanity::test_dtype_config PASSED [ 78%]
+tests/unit/test_psychedelic_fixes.py::TestConfigSanity::test_v3_steps_reasonable PASSED [ 85%]
+tests/unit/test_psychedelic_fixes.py::TestConfigSanity::test_strength_reasonable PASSED [ 92%]
+tests/test_pass2_basic.py::test_pass2_initialization 
+-------------------------------- live log call --------------------------------
+2026-02-15 23:51:27 [    INFO] Loading faiss with AVX2 support.
+2026-02-15 23:51:27 [    INFO] Successfully loaded faiss with AVX2 support.
+2026-02-15 23:51:29 [    INFO] Inicializado: C:\Users\Nyx\AppData\Local\Temp\tmpqe8sscp5\test_pass2_init
+2026-02-15 23:51:29 [    INFO] 1 pßginas salvas
+2026-02-15 23:51:29 [    INFO] Cache persistido em: C:\Users\Nyx\AppData\Local\Temp\tmpqe8sscp5\test_pass2_init
+PASSED                                                                   [100%]
+
+============================== warnings summary ===============================
+tests/unit/test_psychedelic_fixes.py::TestSchedulerConfiguration::test_rescale_betas_zero_snr_is_false
+tests/unit/test_psychedelic_fixes.py::TestSchedulerConfiguration::test_clip_sample_is_false
+tests/unit/test_psychedelic_fixes.py::TestVAEConfiguration::test_vae_force_upcast_is_enabled
+  C:\Users\Nyx\Desktop\MANGACOLOR\venv\lib\site-packages\huggingface_hub\utils\_validators.py:202: UserWarning: The `local_dir_use_symlinks` argument is deprecated and ignored in `hf_hub_download`. Downloading to a local directory does not use symlinks anymore.
+    warnings.warn(
+
+tests/unit/test_psychedelic_fixes.py::TestVAEConfiguration::test_vae_force_upcast_is_enabled
+tests/test_pass2_basic.py::test_pass2_initialization
+  <frozen importlib._bootstrap>:241: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+tests/unit/test_psychedelic_fixes.py::TestVAEConfiguration::test_vae_force_upcast_is_enabled
+tests/test_pass2_basic.py::test_pass2_initialization
+  <frozen importlib._bootstrap>:241: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+tests/test_pass2_basic.py::test_pass2_initialization
+  <frozen importlib._bootstrap>:241: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+
+tests/test_pass2_basic.py::test_pass2_initialization
+  C:\Users\Nyx\Desktop\MANGACOLOR\venv\lib\site-packages\_pytest\python.py:170: PytestReturnNotNoneWarning: Test functions should return None, but tests/test_pass2_basic.py::test_pass2_initialization returned <class 'bool'>.
+  Did you mean to use `assert` instead of `return`?
+  See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================ 14 passed, 1 deselected, 9 warnings in 13.05s ================
+venv\Scripts\python : 
+sys:1: 
+DeprecationWarning: 
+builtin type 
+swigvarlink has no 
+__module__ attribute
+No linha:1 
+caractere:47
++ ... MANGACOLOR; 
+venv\Scripts\python 
+-m pytest tests/unit/t
+est_psychedelic ...
++                 ~~~~
+~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~
+    + CategoryInfo    
+          : NotSpeci  
+  fied: (sys:1: Dep   
+ recat...ule__ att    
+ribute:String) []    
+, RemoteException
+    + FullyQualifiedE 
+   rrorId : NativeCo  
+  mmandError
+ 

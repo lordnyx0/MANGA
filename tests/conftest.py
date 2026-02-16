@@ -8,6 +8,8 @@ import os
 import sys
 from pathlib import Path
 
+# Note: torch.__spec__ fix is handled in root conftest.py
+
 import numpy as np
 import pytest
 import torch

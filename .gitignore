@@ -39,10 +39,16 @@ logs/
 uploads/
 models/
 *.log
-!requirements.txt
-!README.md
-!*report*.txt
-!*result*.txt
+
+# Root-level ephemeral test/build logs (don't version these)
+/*_result*.txt
+/*_report*.txt
+/err.txt
+/fail_log.txt
+/test_*.txt
+/sd15_res.txt
+/fixed_res.txt
+/compose_err.txt
 
 # OS
 .DS_Store

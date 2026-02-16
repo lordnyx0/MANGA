@@ -39,6 +39,7 @@ YOLO_MODEL_ID = "deepghs/manga109_yolo"
 YOLO_CONFIDENCE = 0.3              # Confiança mínima para detecção
 YOLO_FACE_CONFIDENCE = 0.22        # Threshold específico para faces (recall maior)
 YOLO_TEXT_CONFIDENCE = 0.20        # Threshold específico para texto/balões (recall maior)
+BBOX_INFLATION_FACTOR = 1.5        # Fator de expansão para bounding boxes
 DETECTION_IOU_THRESHOLD = 0.45     # IOU threshold para NMS
 CONTEXT_INFLATION_FACTOR = 1.5     # Fator de expansão para contexto (IP-Adapter)
 
@@ -201,7 +202,7 @@ BACKGROUND_IP_SCALE = 0.0          # IP-Adapter scale = 0 para background
 
 # IP-Adapter Control (Global)
 IP_ADAPTER_SCALE_DEFAULT = 0.7     # Escala padrão (pode ser sobrescrita por V3_IP_SCALE)
-IP_ADAPTER_END_STEP = 0.45         # Desliga IP-Adapter mais cedo para reduzir drift no fim
+IP_ADAPTER_END_STEP = 0.6          # Desliga IP-Adapter mais cedo para reduzir drift no fim
 ENABLE_REFERENCE_IMAGE_FALLBACK = True  # Usa uploads/color_references quando não houver referência por char_id
 
 
@@ -507,6 +508,21 @@ LOG_LEVEL = os.getenv("MANGA_COLOR_LOG_LEVEL", "INFO")
 
 
 # ============================================================================
+# ============================================================================
+# LINEART PREPROCESSING
+# ============================================================================
+
+# Minimum edge density to consider lineart as valid (below this, auto-contrast is applied)
+V3_LINEART_MIN_EDGE_DENSITY = float(os.getenv("V3_LINEART_MIN_EDGE_DENSITY", "0.01"))
+
+# Cutoff percentage for PIL.ImageOps.autocontrast
+V3_LINEART_AUTOCONTRAST_CUTOFF = float(os.getenv("V3_LINEART_AUTOCONTRAST_CUTOFF", "1.0"))
+
+# Whether to enable VAE tiling (reduces VRAM but can cause edge artifacts)
+ENABLE_VAE_TILING = os.getenv("ENABLE_VAE_TILING", "false").lower() == "true"
+
+
+# ============================================================================
 # VALIDAÇÃO DE CONFIGURAÇÃO
 # ============================================================================
 
@@ -534,6 +550,7 @@ def validate_config() -> bool:
             raise ValueError(f"Diretório não existe: {dir_path}")
     
     return True
+
 
 
 # Executa validação no import

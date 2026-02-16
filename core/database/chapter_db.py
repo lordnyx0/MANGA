@@ -142,6 +142,10 @@ class ChapterDatabase:
         Returns:
             True se existem embeddings ou páginas analisadas
         """
+        # Verifica se diretório existe
+        if not self.cache_dir.exists():
+             return False
+
         # Verifica se há arquivos de embedding
         if self.embeddings_dir.exists():
             embedding_files = list(self.embeddings_dir.glob("*.pt"))
@@ -845,9 +849,6 @@ class ChapterDatabase:
         
         return self._characters_df['char_id'].tolist()
     
-    def exists(self) -> bool:
-        """Verifica se o capítulo já foi processado (Pass 1)"""
-        return (self.cache_dir / "characters.parquet").exists()
     
     def clear(self):
         """Remove todo o cache do capítulo"""

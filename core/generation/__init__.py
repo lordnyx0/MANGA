@@ -6,4 +6,7 @@ Exporta:
 - TileGenerationResult: Resultado de geração de tile
 """
 
-__all__ = []
+from core.generation.pipeline import TileAwareGenerator
+from core.generation.types import TileGenerationResult
+
+__all__ = ['TileAwareGenerator', 'TileGenerationResult']

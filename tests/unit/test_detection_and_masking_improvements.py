@@ -1,10 +1,16 @@
 import numpy as np
+import pytest
 
 from core.analysis.mask_processor import MaskProcessor
 from core.detection.yolo_detector import YOLODetector, DetectionResult
 from core.utils.image_ops import extract_canny_edges
-from core.pass2_generator import Pass2Generator
-from core.pass1_analyzer import Pass1Analyzer
+
+try:
+    from core.pass2_generator import Pass2Generator
+    from core.pass1_analyzer import Pass1Analyzer
+    _HAS_DIFFUSERS = True
+except (ValueError, RuntimeError, TypeError):
+    _HAS_DIFFUSERS = False
 
 
 def test_extract_canny_edges_auto_threshold_detects_lineart():
@@ -55,6 +61,7 @@ def test_yolo_overlap_dedup_keeps_highest_confidence():
     assert bodies[0].confidence == 0.95
 
 
+@pytest.mark.skipif(not _HAS_DIFFUSERS, reason="diffusers import failed")
 def test_character_mask_matches_bbox_area_without_one_pixel_bleed():
     generator = Pass2Generator.__new__(Pass2Generator)
 
@@ -70,6 +77,7 @@ def test_character_mask_matches_bbox_area_without_one_pixel_bleed():
     assert int((arr > 0).sum()) == 100
 
 
+@pytest.mark.skipif(not _HAS_DIFFUSERS, reason="diffusers import failed")
 def test_pass1_character_filter_excludes_text_and_frame():
     assert Pass1Analyzer._is_character_detection(0) is True
     assert Pass1Analyzer._is_character_detection(1) is True

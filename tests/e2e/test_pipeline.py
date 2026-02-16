@@ -159,7 +159,13 @@ def test_pipeline_analysis_phase(tmp_path):
         # Verifica que database foi criado
         db = pipeline._get_database(analysis.chapter_id)
         assert db is not None
-        assert db.exists()
+        
+        if not db.exists():
+             # Force save if it didn't save (workaround/fix for test if Pass1 didn't save)
+             # But Pass1 SHOULD save.
+             pass
+
+        assert db.exists(), f"Database should exist at {db.cache_dir}"
 
 
 @pytest.mark.e2e

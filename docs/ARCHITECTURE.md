@@ -87,11 +87,11 @@ A geração é agnóstica à resolução e focada em eficiência de VRAM.
     *   *Nota*: V3.1 trará Tiling real para mitigar riscos de alucinação em alta resolução.
 3.  **Identity Strategy (Global & Regional)**:
     *   **Regional IP-Adapter**: Suporta múltiplos personagens por tile. O `Pass2Generator` cria máscaras de atenção baseadas nos BBoxes, garantindo que cada referência visual condicione apenas a região correta.
-    *   **Dynamic Control**: Aplica-se apenas nos primeiros 60% dos steps (configurável via `IP_ADAPTER_END_STEP`) para garantir estrutura sem comprometer detalhes finos.
+    *   **Dynamic Control**: Aplica-se apenas nos primeiros 45% dos steps (configurável via `IP_ADAPTER_END_STEP`) para garantir estrutura sem comprometer detalhes finos.
     *   **Text Prompt Augmentation**: O `MangaPromptBuilder` usa o `PaletteExtractor` (CIELAB) para converter cores das referências em texto (ex: "blue hair"), reforçando a consistência.
 4.  **Compositing & Bubble Masking**:
     *   **Bubble Masking**: O motor identifica regiões de texto via YOLO e as limpa (preenche com branco puro) na camada de cor gerada. Isso elimina "ghosting" e cores indesejadas dentro dos balões.
-    *   **Soft Composition**: Aplica-se um leve Gaussian Blur (radius=0.5) na camada de cor antes do Multiply. Isso suaviza halos e "serrilhados" na intersecção entre cores e linhas.
+    *   **Soft Composition**: Aplica-se um leve Gaussian Blur (radius=0.2) na camada de cor antes do Multiply. Isso suaviza halos e "serrilhados" na intersecção entre cores e linhas.
     *   **Text Restoration**: O `TextCompositor` restaura o texto original com nitidez total.
 
 ---
